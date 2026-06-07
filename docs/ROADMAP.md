@@ -26,12 +26,12 @@ actually works.
 | 4 | Export (CSV + PDF) | ✅ DONE |
 | 5 | API + Svelte dashboard (live-wired) | ✅ DONE |
 | 6 | Attribution ML ("self-learning culprit") | ✅ DONE (core) |
-| 7 | Capable vendor adapters (the real sub) | 🔒 BLOCKED — needs paid data sub (interface ready) |
+| 7 | Capable vendor adapters (the real sub) | 🟡 Polygon `bars()` wired (add `POLYGON_API_KEY`); internals/options endpoints + other vendors still to wire |
 | 8 | Short-squeeze detector | 🟡 PARTIAL — price/volume signature DONE (free); SI-confirmed needs paid feed |
 | 9 | Gamma-squeeze / GEX | 🔒 BLOCKED — needs options-chain data (paid); detector stub in place |
 | 10 | Scalping scanner | ✅ DONE |
 | 11 | ThinkScript export | ✅ DONE |
-| 12 | Hardening / scale | ⬜ TODO — deploy (Vercel/Railway), TimescaleDB, model monitoring |
+| 12 | Hardening / scale | 🟡 CI + walk-forward + backend Dockerfile done; deploy needs your Vercel/Railway accounts; TimescaleDB later |
 
 **Current state:** everything achievable on free data is done (Phases 0–6, 10,
 11 + earnings catalyst). Both scanners (reversal + scalping) run through one

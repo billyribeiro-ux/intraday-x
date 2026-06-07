@@ -1,11 +1,14 @@
 """Default provider wiring.
 
-The default is a CompositeProvider preferring Alpaca (deep free history) and
-falling back to yfinance (zero-setup). Without Alpaca credentials the composite
-transparently routes to yfinance for recent windows.
+Priority (lower = preferred): Polygon (full-market, if POLYGON_API_KEY set) →
+Alpaca (free deep history, if keys set) → yfinance (zero-setup fallback). Adding
+a vendor's key changes the data source with no code change — the composite router
+picks the best capable provider per request.
 """
 
 from __future__ import annotations
+
+import os
 
 from intradayx.data.composite import CompositeProvider
 from intradayx.data.provider import DataProvider
@@ -14,10 +17,11 @@ from intradayx.data.providers.yfinance_provider import YFinanceProvider
 
 
 def default_provider() -> DataProvider:
-    """Alpaca (priority 5, deep history) then yfinance (priority 10, fallback)."""
-    return CompositeProvider(
-        [
-            (AlpacaProvider(), 5),
-            (YFinanceProvider(), 10),
-        ]
-    )
+    providers: list[tuple[DataProvider, int]] = []
+    if os.environ.get("POLYGON_API_KEY"):
+        from intradayx.data.providers.polygon_provider import PolygonProvider
+
+        providers.append((PolygonProvider(), 3))
+    providers.append((AlpacaProvider(), 5))
+    providers.append((YFinanceProvider(), 10))
+    return CompositeProvider(providers)

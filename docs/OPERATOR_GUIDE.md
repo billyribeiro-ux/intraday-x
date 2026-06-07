@@ -124,6 +124,12 @@ The v1 scanners are unoptimized and lose on free data. Before believing any edge
 
 ## 4. Add a paid data vendor for market internals (Phase 7 — your big unlock)
 
+> **Already wired for you: Polygon.io.** Full-market intraday bars need ZERO code
+> — sign up at https://polygon.io/ (free tier exists), put `POLYGON_API_KEY` in
+> `.env`, and the composite router auto-prefers it over Alpaca/yfinance. That
+> alone replaces the thin IEX feed. (Polygon's internals/options *endpoints*
+> aren't wired yet — that's the "add a vendor" work below.)
+
 The reversal scanner leans on internals ($TICK / $TRIN / $ADD / $VOLD) that no
 one sells cheaply as deep history. The code is **built to receive them** — the
 `Capability` system keeps internals features/detectors dormant until a capable
