@@ -79,11 +79,19 @@ def walk_forward(
         lo = i * window_size
         hi = n if i == n_windows - 1 else (i + 1) * window_size
         block = df.slice(lo, hi - lo)
-        if block.height < 10:
+        # Need room for train + an embargo gap + test.
+        if block.height < 2 * max_hold_bars + 10:
             continue
-        split = int(block.height * train_frac)
-        train = BarSet(bars.symbol, bars.timeframe, block.slice(0, split))
-        test = BarSet(bars.symbol, bars.timeframe, block.slice(split, block.height - split))
+        # EMBARGO the `max_hold_bars` bars between IS and OOS so no in-sample
+        # trade's holding window is adjacent to (or correlated with) the OOS
+        # region — otherwise the Deflated-Sharpe headline leaks (AI_LANDMINES #8).
+        train_end = int(block.height * train_frac)
+        test_start = train_end + max_hold_bars
+        if test_start >= block.height or train_end < 1:
+            continue
+        train = BarSet(bars.symbol, bars.timeframe, block.slice(0, train_end))
+        test_len = block.height - test_start
+        test = BarSet(bars.symbol, bars.timeframe, block.slice(test_start, test_len))
 
         # Pick the threshold that maximizes in-sample expectancy.
         best_t = thresholds[0]

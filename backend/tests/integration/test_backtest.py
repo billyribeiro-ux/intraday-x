@@ -74,6 +74,20 @@ def test_time_stop_exit() -> None:
     assert res.trades[0].exit_reason is ExitReason.TIME
 
 
+def test_time_stop_holds_exactly_max_hold_bars() -> None:
+    bars = make_bars(closes=[100.0] * 8, timeframe=Timeframe.M5)
+    sig = _signal(bars, 1, kind=SignalKind.REVERSAL_BOTTOM, side=Side.BUY, stop=90.0, target=110.0)
+    res = simulate_trades([sig], bars, max_hold_bars=3)
+    # entry on bar 2; hold EXACTLY 3 bars (entry inclusive) => exit on bar index 4, not 5.
+    assert res.trades[0].exit_ts == bars.df["ts"].item(4)
+    assert res.trades[0].exit_reason is ExitReason.TIME
+
+
+def test_commission_charged_on_one_share() -> None:
+    # round(0.5) == 0 would waive commission; ceil charges it.
+    assert FillModel().commission_cents(1) == 1
+
+
 def test_no_overlapping_positions() -> None:
     bars = make_bars(closes=[100] * 8, timeframe=Timeframe.M5)
     sigs = [

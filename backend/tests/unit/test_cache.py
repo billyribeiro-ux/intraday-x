@@ -33,6 +33,7 @@ class _CountingProvider(DataProvider):
         *,
         session: Session = Session.RTH,
         adjust: bool = True,
+        now: datetime | None = None,
     ) -> BarSet:
         self.calls += 1
         return self._bars

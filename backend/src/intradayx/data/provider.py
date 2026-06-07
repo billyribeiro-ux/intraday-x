@@ -81,8 +81,14 @@ class DataProvider(ABC):
         *,
         session: Session = Session.RTH,
         adjust: bool = True,
+        now: datetime | None = None,
     ) -> BarSet:
-        """Fetch OHLCV bars for ``ticker`` in ``[start, end]`` at ``timeframe``."""
+        """Fetch OHLCV bars for ``ticker`` in ``[start, end]`` at ``timeframe``.
+
+        ``now`` pins the lookback clock (for as-of replay); honored by the
+        composite router and ignored by single vendors. Part of the contract so
+        decorators (e.g. the cache) stay transparent.
+        """
 
     # --- optional surfaces: default to raising CapabilityError ---
 

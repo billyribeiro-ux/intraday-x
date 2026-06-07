@@ -18,11 +18,15 @@ EARNINGS_SCORE = 0.7  # a scheduled catalyst is a strong named cause
 
 
 def is_near_earnings(d: date, earnings_dates: set[date], window_days: int) -> date | None:
-    """Return the earnings date within `window_days` of `d`, or None."""
-    for offset in range(-window_days, window_days + 1):
-        candidate = d + timedelta(days=offset)
-        if candidate in earnings_dates:
-            return candidate
+    """Return the NEAREST earnings date within `window_days` of `d`, or None.
+
+    Scans by increasing |offset| (0, ±1, ±2, …) so an exact-day match wins and the
+    closest event is chosen when several are nearby — not the earliest in the window.
+    """
+    for off in range(window_days + 1):
+        for candidate in (d + timedelta(days=off), d - timedelta(days=off)):
+            if candidate in earnings_dates:
+                return candidate
     return None
 
 
@@ -32,7 +36,12 @@ def enrich_with_earnings(
     *,
     window_days: int = 1,
 ) -> list[Signal]:
-    """Prepend an EARNINGS cause to signals whose session lands near an earnings date."""
+    """Add an EARNINGS cause to signals whose session lands near an earnings date.
+
+    Inserts BY SCORE (a stronger measured cause keeps the primary slot) rather than
+    blindly prepending, and only clears ``uncertain`` when earnings is the sole
+    explanation — earnings proximity is a calendar coincidence, not proven causation.
+    """
     if not earnings_dates:
         return signals
     edates = set(earnings_dates)
@@ -47,14 +56,24 @@ def enrich_with_earnings(
             score=EARNINGS_SCORE,
             source=CauseSource.RULE,
             label=f"Coincides with scheduled earnings ({hit.isoformat()})",
-            evidence={"earnings_offset_days": (s.ts.date() - hit).days},
+            evidence={"earnings_offset_days": float((s.ts.date() - hit).days)},
         )
         a = s.attribution
+        # Drop the "unexplained" placeholder if present; insert earnings by score.
+        real = tuple(c for c in a.ranked_causes if c.kind is not CauseKind.UNEXPLAINED)
+        merged = tuple(sorted((cause, *real), key=lambda c: c.score, reverse=True))
         enriched = Attribution(
-            ranked_causes=(cause, *a.ranked_causes),
+            ranked_causes=merged,
             data_completeness=a.data_completeness,
-            uncertain=False,  # we now have a named catalyst
-            caveat=a.caveat,
+            # Earnings names the catalyst only when nothing measured explained the move;
+            # never override a confident measured attribution.
+            uncertain=a.uncertain if real else False,
+            caveat=(
+                a.caveat
+                if real
+                else "Coincides with scheduled earnings — a calendar coincidence, not "
+                "confirmed causation; verify before trading."
+            ),
         )
         out.append(replace(s, attribution=enriched))
     return out

@@ -100,6 +100,7 @@ class AlpacaProvider(DataProvider):
         *,
         session: Session = Session.RTH,
         adjust: bool = True,
+        now: datetime | None = None,  # lookback routing is the composite's job
     ) -> BarSet:
         client = self._get_client()
         from alpaca.data.enums import Adjustment, DataFeed

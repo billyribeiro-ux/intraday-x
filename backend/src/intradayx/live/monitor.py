@@ -12,6 +12,7 @@ owns the poll→evaluate→dedup core.
 from __future__ import annotations
 
 from collections.abc import Callable
+from datetime import datetime, timedelta
 
 from intradayx.domain.bars import BarSet
 from intradayx.domain.capabilities import ProviderCapabilities
@@ -26,19 +27,27 @@ class LiveMonitor:
         engine: SignalEngine | None = None,
         *,
         on_signal: Callable[[Signal], None] | None = None,
+        retention: timedelta = timedelta(days=7),
     ) -> None:
         self.caps = caps
         self.engine = engine or SignalEngine()
         self._on_signal = on_signal
-        self._seen: set[str] = set()
+        self._retention = retention
+        # signal_id -> bar ts. Bounded: a 24/7 poller must not leak forever, and
+        # a signal older than the poll lookback can never re-appear anyway.
+        self._seen: dict[str, datetime] = {}
 
     def process(self, bars: BarSet) -> list[Signal]:
         """Evaluate the latest bars and return only signals not seen before."""
+        signals = self.engine.scan(bars, self.caps)
+        if signals:  # prune ids older than `retention` before the newest signal
+            cutoff = max(s.ts for s in signals) - self._retention
+            self._seen = {sid: ts for sid, ts in self._seen.items() if ts >= cutoff}
         fresh: list[Signal] = []
-        for sig in self.engine.scan(bars, self.caps):
+        for sig in signals:
             if sig.signal_id in self._seen:
                 continue
-            self._seen.add(sig.signal_id)
+            self._seen[sig.signal_id] = sig.ts
             fresh.append(sig)
             if self._on_signal is not None:
                 self._on_signal(sig)

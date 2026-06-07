@@ -52,8 +52,13 @@ class LearnResult:
     extra: dict[str, float] = field(default_factory=dict)
 
 
-def build_xy(fs: FeatureSet) -> tuple[np.ndarray, np.ndarray, list[str]]:
-    """Build (X, y, feature_cols). Target = significant move imminent (|tb|==1)."""
+def build_xy(fs: FeatureSet) -> tuple[np.ndarray, np.ndarray, list[str], np.ndarray]:
+    """Build (X, y, feature_cols, positions).
+
+    Target = significant move imminent (|tb|==1). ``positions`` is the ORIGINAL
+    bar index of each surviving row (rows with NaN features/labels are dropped),
+    so the purged CV can purge in true-bar space rather than compacted-index space.
+    """
     df = fs.df
     cols = [c for c in ML_FEATURE_COLUMNS if c in df.columns]
     labels = triple_barrier_labels(df)
@@ -62,13 +67,14 @@ def build_xy(fs: FeatureSet) -> tuple[np.ndarray, np.ndarray, list[str]]:
     finite = np.isfinite(feat).all(axis=1)
     labelled = np.isfinite(labels)
     mask = finite & labelled
+    positions = np.flatnonzero(mask)  # original bar index of each kept row
     x = feat[mask]
     y = (np.abs(labels[mask]) == 1).astype(int)
-    return x, y, cols
+    return x, y, cols, positions
 
 
 def train_and_evaluate(fs: FeatureSet, *, n_splits: int = 5) -> LearnResult:
-    x, y, cols = build_xy(fs)
+    x, y, cols, positions = build_xy(fs)
     n = len(y)
     if n < MIN_SAMPLES or len(np.unique(y)) < 2:
         return LearnResult(
@@ -98,7 +104,7 @@ def train_and_evaluate(fs: FeatureSet, *, n_splits: int = 5) -> LearnResult:
 
     f1s: list[float] = []
     for train_idx, test_idx in purged_kfold(
-        n, n_splits=n_splits, label_horizon=DEFAULT_MAX_HOLD, embargo=5
+        n, positions=positions, n_splits=n_splits, label_horizon=DEFAULT_MAX_HOLD, embargo=5
     ):
         if len(np.unique(y[train_idx])) < 2 or test_idx.size == 0:
             continue

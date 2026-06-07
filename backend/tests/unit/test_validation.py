@@ -22,6 +22,20 @@ def test_purged_kfold_purges_label_window() -> None:
             assert not (t0 - 10 <= ti <= t1 + 10)
 
 
+def test_purged_kfold_purges_in_bar_space() -> None:
+    # 20 samples whose ORIGINAL bar positions are sparse (10 bars apart) — as if
+    # interior rows were dropped. Purge must be measured in bar space, not index.
+    positions = np.arange(0, 200, 10)  # bars 0,10,...,190
+    folds = purged_kfold(20, positions=positions, n_splits=4, label_horizon=15, embargo=5)
+    assert len(folds) == 4
+    for train, test in folds:
+        tb0, tb1 = int(positions[test[0]]), int(positions[test[-1]])
+        for ti in train.tolist():
+            bar = int(positions[ti])
+            # No training sample within label_horizon BARS of the test span.
+            assert not (tb0 - 15 <= bar <= tb1 + 15)
+
+
 def test_psr_higher_for_better_returns() -> None:
     rng = np.random.default_rng(0)
     good = rng.normal(0.01, 0.01, 200)  # SR ~ 1

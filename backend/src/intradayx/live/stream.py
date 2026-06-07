@@ -81,6 +81,34 @@ class StreamMonitor:
                     self._on_signal(sig)
 
 
+def default_bar_parser(raw: str | bytes) -> Bar | None:
+    """Parse a simple JSON bar message into a :class:`Bar`.
+
+    Expected shape (adapt per vendor by passing your own parser):
+    ``{"symbol","ts","open","high","low","close","volume",["vwap"],["trades"]}``
+    where ``ts`` is an ISO-8601 UTC string. Tick feeds (Finnhub trades, etc.)
+    need a tick→bar aggregator, plugged in as a custom parser. Returns None for
+    non-bar control frames.
+    """
+    from datetime import datetime
+
+    msg = json.loads(raw)
+    if not isinstance(msg, dict) or "close" not in msg or "ts" not in msg:
+        return None
+    return Bar(
+        symbol=str(msg["symbol"]),
+        ts=datetime.fromisoformat(str(msg["ts"])),
+        open=float(msg["open"]),
+        high=float(msg["high"]),
+        low=float(msg["low"]),
+        close=float(msg["close"]),
+        volume=int(msg.get("volume", 0) or 0),
+        vwap=float(msg["vwap"]) if msg.get("vwap") is not None else None,
+        trades=int(msg["trades"]) if msg.get("trades") is not None else None,
+        source="websocket",
+    )
+
+
 class WebSocketBarStream:
     """Generic websocket bar source. Point it at a vendor's wss:// feed + a parser."""
 

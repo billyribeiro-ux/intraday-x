@@ -7,6 +7,7 @@ trade direction. Commission is per-share. Money is tracked in integer cents.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 
@@ -21,5 +22,9 @@ class FillModel:
         return ref_price + slip if is_long else ref_price - slip
 
     def commission_cents(self, shares: int) -> int:
-        """Per-share commission for one side, in integer cents (rounded up-ish)."""
-        return round(self.commission_per_share_cents * shares)
+        """Per-share commission for one side, in integer cents (rounded UP).
+
+        ``round`` (banker's) would undercharge — waiving commission entirely on a
+        1-share trade (round(0.5)=0). Ceil never under-charges the realism knob.
+        """
+        return math.ceil(self.commission_per_share_cents * shares)

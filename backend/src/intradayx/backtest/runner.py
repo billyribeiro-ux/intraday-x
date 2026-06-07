@@ -100,10 +100,12 @@ def simulate_trades(
         stop = sig.stop
         target = sig.targets[0] if sig.targets else None
 
-        exit_idx = min(entry_idx + max_hold_bars, n - 1)
+        # Hold AT MOST max_hold_bars bars (entry bar inclusive), matching
+        # triple_barrier_labels — not max_hold_bars + 1.
+        exit_idx = min(entry_idx + max_hold_bars - 1, n - 1)
         exit_price = c[exit_idx]
         reason = ExitReason.TIME
-        for j in range(entry_idx, min(entry_idx + max_hold_bars, n - 1) + 1):
+        for j in range(entry_idx, min(entry_idx + max_hold_bars - 1, n - 1) + 1):
             if is_long:
                 if low[j] <= stop:
                     exit_idx, exit_price, reason = j, stop, ExitReason.STOP

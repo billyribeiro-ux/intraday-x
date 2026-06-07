@@ -82,6 +82,7 @@ class PolygonProvider(DataProvider):
         *,
         session: Session = Session.RTH,
         adjust: bool = True,
+        now: datetime | None = None,  # lookback routing is the composite's job
     ) -> BarSet:
         if not self._api_key:
             raise MissingCredentialsError(
@@ -127,7 +128,7 @@ class PolygonProvider(DataProvider):
                 "high": [float(r["h"]) for r in rows],
                 "low": [float(r["l"]) for r in rows],
                 "close": [float(r["c"]) for r in rows],
-                "volume": [int(r.get("v", 0)) for r in rows],
+                "volume": [int(r.get("v") or 0) for r in rows],  # explicit null => 0
                 "vwap": [r.get("vw") for r in rows],
                 "trades": [r.get("n") for r in rows],
                 "source": [self.name] * len(rows),

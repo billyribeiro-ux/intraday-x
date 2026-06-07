@@ -50,11 +50,14 @@ class CachingProvider(DataProvider):
         *,
         session: Session = Session.RTH,
         adjust: bool = True,
+        now: datetime | None = None,
     ) -> BarSet:
         cached = self.lake.read_bars(ticker.upper(), timeframe, start, end)
         if self._covers(cached, start, end):
             return cached
-        fresh = self.inner.bars(ticker, start, end, timeframe, session=session, adjust=adjust)
+        fresh = self.inner.bars(
+            ticker, start, end, timeframe, session=session, adjust=adjust, now=now
+        )
         if fresh.is_empty():
             return cached  # honest: serve whatever (possibly empty) we had
         self.lake.write_bars(fresh)

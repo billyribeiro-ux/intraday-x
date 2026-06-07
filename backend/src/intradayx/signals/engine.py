@@ -36,7 +36,9 @@ class SignalEngine:
         signals: list[Signal] = []
         for row in frame.iter_rows(named=True):
             attribution = self.strategy.attribution(row, fs.data_completeness)
-            confidence = float(row["confluence"]) * fs.data_completeness
+            # Clamp to enforce the Signal's documented 0–1 invariant (a future
+            # weight retune that sums > 1 must not leak a > 1 confidence).
+            confidence = min(float(row["confluence"]) * fs.data_completeness, 1.0)
             stop = float(row["stop"]) if row["stop"] is not None else float(row["entry"])
             snapshot = {
                 k: float(v)

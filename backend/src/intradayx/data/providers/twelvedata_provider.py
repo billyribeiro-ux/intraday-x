@@ -85,6 +85,7 @@ class TwelveDataProvider(DataProvider):
         *,
         session: Session = Session.RTH,
         adjust: bool = True,
+        now: datetime | None = None,  # lookback routing is the composite's job
     ) -> BarSet:
         if not self._api_key:
             raise MissingCredentialsError(
@@ -94,18 +95,23 @@ class TwelveDataProvider(DataProvider):
         interval = _INTERVAL[timeframe]
         retryable = (TransientError, httpx.TransportError, httpx.TimeoutException)
         collected: list[dict[str, Any]] = []
-        tz = _NY
-        cursor = start
         timeout = httpx.Timeout(30.0, connect=5.0)
+        # /time_series returns the NEWEST `outputsize` bars in a window, so we
+        # page by walking end_date BACKWARD (start fixed). We always request +
+        # parse in NY wall-clock — the `timezone` param sets the output zone, so
+        # mixing in meta.exchange_timezone would corrupt non-US timestamps.
+        start_str = start.astimezone(_NY).strftime("%Y-%m-%d %H:%M:%S")
+        end_cursor = end
+        reached_start = False
 
         with httpx.Client(timeout=timeout) as client:
 
-            def _req(c: datetime) -> dict[str, Any]:
+            def _req(upper: datetime) -> dict[str, Any]:
                 params = {
                     "symbol": ticker.upper(),
                     "interval": interval,
-                    "start_date": c.astimezone(_NY).strftime("%Y-%m-%d %H:%M:%S"),
-                    "end_date": end.astimezone(_NY).strftime("%Y-%m-%d %H:%M:%S"),
+                    "start_date": start_str,
+                    "end_date": upper.astimezone(_NY).strftime("%Y-%m-%d %H:%M:%S"),
                     "outputsize": str(_PAGE),
                     "order": "ASC",
                     "timezone": "America/New_York",
@@ -114,46 +120,57 @@ class TwelveDataProvider(DataProvider):
                 r = client.get(_BASE, params=params)
                 if r.status_code == 429 or r.status_code >= 500:
                     raise TransientError(f"twelvedata {r.status_code} (transient)")
-                body: dict[str, Any] = r.json()
+                if r.status_code != 200:
+                    raise DataError(f"twelvedata {r.status_code} for {ticker}: {r.text[:200]}")
+                try:
+                    body: dict[str, Any] = r.json()
+                except ValueError as exc:  # non-JSON body (CDN/gateway HTML, etc.)
+                    raise DataError(
+                        f"twelvedata non-JSON for {ticker} ({r.status_code}): {r.text[:200]}"
+                    ) from exc
                 if body.get("status") == "error":
                     if str(body.get("code")) == "429":
                         raise TransientError("twelvedata rate limit")
                     raise DataError(f"twelvedata error for {ticker}: {body.get('message')}")
                 return body
 
-            for _ in range(60):  # bounded date-chunked pagination
-                body = with_retries(partial(_req, cursor), retryable=retryable)
-                if "exchange_timezone" in body.get("meta", {}):
-                    tz = ZoneInfo(body["meta"]["exchange_timezone"])
-                values = body.get("values") or []
+            for _ in range(120):  # bounded backward pagination
+                body = with_retries(partial(_req, end_cursor), retryable=retryable)
+                values = body.get("values") or []  # ASC: values[0] oldest
                 if not values:
+                    reached_start = True
                     break
                 collected.extend(values)
-                if len(values) < _PAGE:
+                if len(values) < _PAGE:  # partial page => reached start
+                    reached_start = True
                     break
-                cursor = self._parse_dt(values[-1]["datetime"], tz) + timeframe.timedelta
+                end_cursor = self._parse_dt(values[0]["datetime"], _NY) - timeframe.timedelta
+                if end_cursor <= start:
+                    reached_start = True
+                    break
 
         if not collected:
             return BarSet(ticker, timeframe, pl.DataFrame(schema=BAR_SCHEMA))
+        if not reached_start:
+            # Hit the page cap before covering [start, end] — fail loud rather than
+            # silently return a short window (the LookbackExceededError principle).
+            raise DataError(
+                f"twelvedata: {ticker} {interval} window from {start:%Y-%m-%d} exceeds the "
+                "pagination cap; request a narrower range or a coarser timeframe."
+            )
 
-        # Dedupe boundary overlaps by datetime string, then build the frame.
-        seen: set[str] = set()
-        uniq: list[dict[str, Any]] = []
-        for v in collected:
-            if v["datetime"] not in seen:
-                seen.add(v["datetime"])
-                uniq.append(v)
+        # BarSet._coerce dedupes on `ts` (keep='last') and sorts — no hand dedupe needed.
         frame = pl.DataFrame(
             {
-                "ts": [self._parse_dt(v["datetime"], tz) for v in uniq],
-                "open": [float(v["open"]) for v in uniq],
-                "high": [float(v["high"]) for v in uniq],
-                "low": [float(v["low"]) for v in uniq],
-                "close": [float(v["close"]) for v in uniq],
-                "volume": [int(float(v.get("volume", 0) or 0)) for v in uniq],
-                "vwap": [None] * len(uniq),
-                "trades": [None] * len(uniq),
-                "source": [self.name] * len(uniq),
+                "ts": [self._parse_dt(v["datetime"], _NY) for v in collected],
+                "open": [float(v["open"]) for v in collected],
+                "high": [float(v["high"]) for v in collected],
+                "low": [float(v["low"]) for v in collected],
+                "close": [float(v["close"]) for v in collected],
+                "volume": [int(float(v.get("volume", 0) or 0)) for v in collected],
+                "vwap": [None] * len(collected),
+                "trades": [None] * len(collected),
+                "source": [self.name] * len(collected),
             }
         )
         return BarSet(ticker, timeframe, frame)

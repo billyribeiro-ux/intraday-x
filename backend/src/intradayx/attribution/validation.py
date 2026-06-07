@@ -24,31 +24,33 @@ Returns = Sequence[float] | np.ndarray
 def purged_kfold(
     n_samples: int,
     *,
+    positions: np.ndarray | None = None,
     n_splits: int = 5,
     label_horizon: int = 24,
     embargo: int = 5,
 ) -> list[tuple[np.ndarray, np.ndarray]]:
     """Time-ordered folds with purging (label-window overlap) + embargo.
 
-    Returns a list of (train_idx, test_idx). Training samples whose label window
-    overlaps a test block — or fall in the embargo just after it — are removed.
+    Returns a list of (train_idx, test_idx). Purge/embargo are measured in
+    ORIGINAL BAR space via ``positions`` (the bar index of each sample) — so when
+    rows were dropped (NaN features/labels) the purge still removes a full
+    ``label_horizon`` of real bars, not a shorter compacted span. ``positions``
+    defaults to identity (contiguous), preserving the simple case.
     """
     idx = np.arange(n_samples)
+    pos = idx if positions is None else np.asarray(positions)
     folds: list[tuple[np.ndarray, np.ndarray]] = []
     for test_block in np.array_split(idx, n_splits):
         if test_block.size == 0:
             continue
-        t0, t1 = int(test_block[0]), int(test_block[-1])
+        # Test block's span in BAR positions.
+        tb0, tb1 = int(pos[test_block[0]]), int(pos[test_block[-1]])
         train_mask = np.ones(n_samples, dtype=bool)
         train_mask[test_block] = False
-        # Purge: any sample whose label window [i, i+horizon] overlaps the test
-        # block, i.e. within `label_horizon` on either side.
-        purge_lo = max(0, t0 - label_horizon)
-        purge_hi = min(n_samples - 1, t1 + label_horizon)
-        train_mask[purge_lo : purge_hi + 1] = False
-        # Embargo: a few more samples right after the (purged) test region.
-        emb_hi = min(n_samples - 1, purge_hi + embargo)
-        train_mask[t1 + 1 : emb_hi + 1] = False
+        # Purge: drop any train sample whose label window overlaps the test span.
+        train_mask &= ~((pos >= tb0 - label_horizon) & (pos <= tb1 + label_horizon))
+        # Embargo: a few more bars right after the test span.
+        train_mask &= ~((pos > tb1) & (pos <= tb1 + label_horizon + embargo))
         folds.append((idx[train_mask], test_block))
     return folds
 

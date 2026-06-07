@@ -37,6 +37,11 @@ class Settings(BaseSettings):
     # Live monitor.
     watched_symbols: list[str] = ["AAPL", "SPY"]
     poll_interval_s: int = 30
+    # Live ingestion CHOICE: "poll" (REST every poll_interval_s) or "stream"
+    # (consume a websocket feed). Stream mode needs stream_ws_url.
+    live_mode: str = "poll"
+    stream_ws_url: str = ""  # wss:// vendor feed for stream mode
+    stream_timeframe: str = "1m"
 
     # Storage + logging.
     data_dir: Path = Path("data/lake")
