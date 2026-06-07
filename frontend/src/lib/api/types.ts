@@ -72,3 +72,51 @@ export type WsMessage =
 export function uiDirection(side: Side): 'buy' | 'sell' {
 	return side === 'buy' || side === 'cover' ? 'buy' : 'sell';
 }
+
+// --- REST payloads (mirror backend api/schemas.py) ---
+
+export interface ChartCandle {
+	time: number;
+	open: number;
+	high: number;
+	low: number;
+	close: number;
+}
+export interface ChartVolume {
+	time: number;
+	value: number;
+	color: string;
+}
+export interface ChartLine {
+	time: number;
+	value: number;
+}
+export interface ChartMarker {
+	time: number;
+	position: 'aboveBar' | 'belowBar' | 'inBar';
+	shape: 'arrowUp' | 'arrowDown' | 'circle' | 'square';
+	color: string;
+	text: string;
+}
+export interface Levels {
+	poc: number;
+	vah: number;
+	val: number;
+}
+export interface BarsPayload {
+	symbol: string;
+	timeframe: string;
+	candles: ChartCandle[];
+	volume: ChartVolume[];
+	vwap: ChartLine[];
+	markers: ChartMarker[];
+	levels: Levels | null;
+	data_completeness: number;
+}
+export interface ScanPayload {
+	symbol: string;
+	timeframe: string;
+	n_bars: number;
+	data_completeness: number;
+	signals: Signal[];
+}

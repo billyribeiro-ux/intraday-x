@@ -111,6 +111,18 @@ def scan(
         console.print(f"[dim]{signals[0].attribution.caveat}[/]")
 
 
+@app.command()
+def serve(
+    host: str = typer.Option("127.0.0.1", help="Bind host"),
+    port: int = typer.Option(8000, help="Bind port"),
+) -> None:
+    """Run the FastAPI API + websocket (single worker — required by the poller)."""
+    import uvicorn
+
+    console.print(f"intraday-x API on http://{host}:{port}  (docs at /docs, ws at /ws/signals)")
+    uvicorn.run("intradayx.api.app:app", host=host, port=port, workers=1)
+
+
 def _usd(cents: int | float) -> str:
     return f"${cents / 100:,.2f}"
 

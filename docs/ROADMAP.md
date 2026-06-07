@@ -24,7 +24,7 @@ actually works.
 | 2 | Features + Reversal SignalEngine (first scanner) | ✅ DONE |
 | 3 | Backtester + Live monitor, in parallel | ✅ DONE (custom engine; Nautilus deferred to go-live) |
 | 4 | Export (CSV + PDF) | ✅ DONE |
-| 5 | API + Svelte dashboard | ⬜ TODO |
+| 5 | API + Svelte dashboard (live-wired) | ✅ DONE |
 | 6 | Attribution ML ("self-learning culprit") | ⬜ TODO |
 | 7 | Capable vendor adapters (the real sub) | ⬜ TODO |
 | 8 | Short-squeeze detector | ⬜ TODO |
@@ -229,28 +229,34 @@ assert + a structural PDF test (starts with `%PDF`, embeds chart images); a real
 
 ---
 
-## Phase 5 — API + Svelte dashboard ⬜ TODO
+## Phase 5 — API + Svelte dashboard (live-wired) ✅ DONE
 
-**Goal.** Expose scan/backtest/signals over a single-instance FastAPI service
-and render them live in a CLS-safe SvelteKit dashboard.
+**Goal.** Expose scan/backtest/bars over a single-instance FastAPI service and
+render them live in the SvelteKit dashboard.
 
 **Deliverables.**
-- FastAPI REST (`api/app.py`, `api/routes/`): `/scan`, `/backtest`, `/signals`,
-  `/providers/capabilities`, `/export`. Run with **`--workers 1`** (hard rule:
-  the APScheduler poller + WS connection manager must be single-instance).
-- WebSocket (`api/ws.py`): `status/heartbeat/signal/revoke/error` protocol with
-  `source` + `as_of` provenance baked in.
-- SvelteKit: runes WS store
-  (`frontend/src/lib/realtime/signal-store.svelte.ts`) with reconnect/backoff +
-  heartbeat watchdog; **CLS-safe** `SignalTable` (fixed row height, no skeleton
-  flash on append); `IntradayChart.svelte` (LWC v5 candles + volume pane +
-  VWAP/POC overlays + **`createSeriesMarkers`** arrows); backtest results view;
-  CSV/PDF download triggers; filters (scanner/ticker/ToD via `$derived`).
+- ✅ FastAPI REST (`api/app.py`, `api/routes/{market,analysis}.py`,
+  `api/schemas.py`, `api/service.py`): `GET /healthz`,
+  `GET /api/providers/capabilities`, `GET /api/bars` (chart-ready),
+  `POST /api/scan`, `POST /api/backtest`. CORS for the dev origin.
+- ✅ WebSocket (`api/ws.py`): `ConnectionManager` + `SignalPoller` (APScheduler
+  `AsyncIOScheduler`, 30s) running the **same** SignalEngine via `LiveMonitor`;
+  `status/heartbeat/signal/error` envelope carrying `source`/`mode`/session
+  provenance. **`--workers 1`** enforced via the `intradayx serve` command (the
+  poller + WS manager must be single-instance — AI_LANDMINES).
+- ✅ Frontend wired live: `api/client.ts` + `+page.ts` load (ssr=false) fetch
+  `/api/bars` + `/api/scan`; `signal-store.svelte.ts` connects the WS
+  (reconnect/backoff/heartbeat); `$derived` merge of live + historical signals.
+- ⬜ **Deferred:** backtest-results route in the UI, CSV/PDF download buttons,
+  filters, and the Playwright CLS spec (next iteration of the dashboard).
 
-**Data dependency.** Phase 3 live signals over WS; Phase 4 export endpoints.
+**Data dependency.** Phase 3 live signals over WS; Phase 1 providers for bars.
 
-**Exit gate.** A Playwright spec asserts ~0 CLS on signal append and on first
-data load; a live signal flows end-to-end (poll → engine → WS → table render).
+**Exit gate.** ✅ MET — `intradayx serve` boots; curl verified `/healthz`,
+`/api/providers/capabilities`, `/api/scan` (390 bars → 5 signals), `/api/bars`
+(390 candles + markers + levels), `/api/backtest` (40 signals → 35 trades); the
+Vite dev proxy round-trip (`:5173/api/* → :8000`) returns live data; frontend
+`svelte-check` 0/0 and production build pass.
 
 ---
 

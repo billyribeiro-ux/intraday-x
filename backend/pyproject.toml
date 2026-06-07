@@ -98,6 +98,8 @@ module = [
     "duckdb.*",
     "reportlab.*",
     "matplotlib.*",
+    "apscheduler.*",
+    "uvicorn.*",
 ]
 ignore_missing_imports = true
 
