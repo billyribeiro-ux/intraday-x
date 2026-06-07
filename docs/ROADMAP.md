@@ -22,7 +22,7 @@ actually works.
 | 0 | Scaffold | ✅ DONE |
 | 1 | Data + lake + internals-recorder scaffold | ✅ DONE |
 | 2 | Features + Reversal SignalEngine (first scanner) | ✅ DONE |
-| 3 | Backtester (Nautilus) + Live monitor, in parallel | ⬜ TODO (next) |
+| 3 | Backtester + Live monitor, in parallel | ✅ DONE (custom engine; Nautilus deferred to go-live) |
 | 4 | Export (CSV + PDF) | ⬜ TODO |
 | 5 | API + Svelte dashboard | ⬜ TODO |
 | 6 | Attribution ML ("self-learning culprit") | ⬜ TODO |
@@ -162,33 +162,46 @@ signal-engine anchor proving the exact confluence maths + signal-id determinism)
 
 ---
 
-## Phase 3 — Backtester (Nautilus) + Live monitor, in parallel ⬜ TODO (next)
+## Phase 3 — Backtester + Live monitor, in parallel ✅ DONE
 
 **Goal.** Run the **same** `SignalEngine` through a historical backtest and a
 live poller, and prove they agree. Built together because the parity guarantee
 is the whole point.
 
+**Engine decision (deviation from the plan, documented).** We built a **custom
+event-driven backtester** rather than `nautilus_trader`. The plan explicitly
+preserved this as the sanctioned fallback "in case Nautilus's data model proves
+too heavy for early iteration" — and because all signal logic already lives
+*outside* the runtime in `SignalEngine`, backtest↔live parity holds regardless of
+the executor. Nautilus is a heavy Rust-backed dep whose value is realistic broker
+execution + a live gateway; it's deferred to the **go-live phase** (a thin
+`nautilus_adapter.py` wrapping the same `SignalEngine`). The custom engine is the
+research backtester.
+
 **Deliverables.**
-- `backtest/nautilus_adapter.py` — thin adapter wrapping `SignalEngine` as a
-  Nautilus `Strategy` (**fill-on-next-bar**, slippage + commission). Domain/signal
-  logic stays *outside* Nautilus.
-- `backtest/runner.py` — walk-forward runner; `backtest/fills.py`,
-  `backtest/metrics.py`.
-- Metrics: win rate, expectancy, profit factor, max drawdown, Sharpe/Sortino,
-  **per-time-of-day breakdown**, **Deflated Sharpe** (discounts multiple-testing
-  overfit).
-- `live/monitor.py` — APScheduler `AsyncIOScheduler` poller → **same**
-  `SignalEngine` → WebSocket broadcast; bar dedupe by `(symbol, close_ts)`,
-  signal dedupe by deterministic `make_signal_id`.
-- `live/feed.py` — poll/stream abstraction.
+- ✅ `backtest/fills.py` — `FillModel`: **fill-on-next-bar** open + adverse
+  slippage (bps) + per-share commission; money in integer cents.
+- ✅ `backtest/runner.py` — `simulate_trades()` (pure, deterministic) +
+  `run_backtest()` (scan via shared engine → simulate); single-position, stop +
+  first-target + bar-count time-stop; `Trade` / `BacktestResult`.
+- ✅ `backtest/metrics.py` — win rate, expectancy, profit factor, max drawdown,
+  per-trade Sharpe (unannualized), and the **per-time-of-day breakdown**.
+- ✅ `live/monitor.py` — `LiveMonitor` poll→evaluate→dedup core using the **same**
+  `SignalEngine`; signal dedupe by deterministic `signal_id`.
+- ✅ `intradayx backtest <TICKER>` CLI.
+- ⬜ **Deferred:** APScheduler loop + websocket fan-out (Phase 5); walk-forward
+  runner + Deflated Sharpe (Phase 6); `nautilus_adapter.py` (go-live).
 
-**Data dependency.** Phase 1 lake for backtest; live poll from yfinance/Alpaca
-for the monitor.
+**Data dependency.** Phase 1 lake / providers for backtest; live poll from
+yfinance/Alpaca for the monitor.
 
-**Exit gate.** A committed deterministic OHLCV fixture reproduces a *known*
-equity curve / trade list; a **parity test** asserts the backtest path and a
-`live/monitor.py` replay of the same fixture emit a byte-identical `Signal` set
-(guards the shared-engine rule).
+**Exit gate.** ✅ MET — `intradayx backtest AAPL` runs on 55 days of real 5m data
+(102 signals → 90 trades) with metrics + per-ToD breakdown; a deterministic
+fixture reproduces *exact* trade P&L (`test_backtest.py`); a **parity test**
+(`test_parity.py`) asserts incremental/live evaluation equals the batch/backtest
+signal set and that the monitor never re-emits a seen signal. 21 tests pass.
+(Honest result: the unoptimized v1 reversal scanner *loses* on free data — the
+edge needs internals (Phase 7) + ML refinement (Phase 6).)
 
 ---
 

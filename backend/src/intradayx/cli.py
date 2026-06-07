@@ -111,5 +111,60 @@ def scan(
         console.print(f"[dim]{signals[0].attribution.caveat}[/]")
 
 
+def _usd(cents: int | float) -> str:
+    return f"${cents / 100:,.2f}"
+
+
+@app.command()
+def backtest(
+    ticker: str,
+    timeframe: str = typer.Option("5m", help="Bar interval: 1m,5m,15m,30m,1h,1d"),
+    days: int = typer.Option(60, help="How many days back to backtest"),
+    max_hold: int = typer.Option(24, help="Max bars to hold a trade (time-stop)"),
+) -> None:
+    """Backtest the reversal scanner on TICKER and print performance metrics."""
+    from intradayx.backtest.runner import run_backtest
+
+    tf = Timeframe(timeframe)
+    end = datetime.now(tz=UTC)
+    start = end - timedelta(days=days)
+    provider = default_provider()
+    bars = provider.bars(ticker.upper(), start, end, tf)
+    if bars.is_empty():
+        console.print(f"[yellow]No bars for {ticker.upper()} — nothing to backtest.[/]")
+        raise typer.Exit(code=0)
+
+    res = run_backtest(bars, provider.capabilities(), max_hold_bars=max_hold)
+    m = res.metrics
+    pf = "∞" if m.profit_factor == float("inf") else f"{m.profit_factor:.2f}"
+    console.print(
+        f"\n[bold]{ticker.upper()}[/] {tf.value} backtest — {len(bars)} bars, "
+        f"{res.n_signals} signals, [bold cyan]{m.n_trades}[/] trades"
+    )
+    summary = Table(show_header=False, box=None)
+    summary.add_row("Net P&L", f"[bold]{_usd(m.total_pnl_cents)}[/]")
+    summary.add_row("Win rate", f"{m.win_rate:.0%} ({m.wins}W / {m.losses}L)")
+    summary.add_row("Expectancy / trade", _usd(m.expectancy_cents))
+    summary.add_row("Avg win / loss", f"{_usd(m.avg_win_cents)} / {_usd(m.avg_loss_cents)}")
+    summary.add_row("Profit factor", pf)
+    summary.add_row("Max drawdown", _usd(m.max_drawdown_cents))
+    summary.add_row("Sharpe (per-trade, unannualized)", f"{m.sharpe_per_trade:.2f}")
+    console.print(summary)
+
+    if m.per_tod:
+        tod = Table(title="By time-of-day", show_lines=False)
+        for col in ("Bucket", "Trades", "Win rate", "Expectancy"):
+            tod.add_column(col)
+        for bucket, st in m.per_tod.items():
+            tod.add_row(bucket, str(st.n), f"{st.win_rate:.0%}", _usd(st.expectancy_cents))
+        console.print(tod)
+
+    console.print(
+        "[dim]Edge is assumed overfit until proven otherwise: realistic costs are "
+        "modeled, but validate with walk-forward + Deflated Sharpe (Phase 6) before "
+        "trusting this.[/]"
+    )
+
+
 if __name__ == "__main__":
     app()
