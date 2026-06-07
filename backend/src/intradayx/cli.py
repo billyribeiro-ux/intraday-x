@@ -222,6 +222,59 @@ def backtest(
 
 
 @app.command()
+def walkforward(
+    ticker: str,
+    timeframe: str = typer.Option("5m", help="Bar interval"),
+    days: int = typer.Option(60, help="How many days back"),
+    scanner: str = typer.Option("reversal", help="Scanner: reversal | scalping"),
+    windows: int = typer.Option(4, help="Number of sequential walk-forward windows"),
+) -> None:
+    """Walk-forward validation: pick the threshold in-sample, trade it out-of-sample."""
+    from intradayx.backtest.walkforward import walk_forward
+
+    if scanner not in ("reversal", "scalping"):
+        raise typer.BadParameter("scanner must be 'reversal' or 'scalping'")
+    tf = Timeframe(timeframe)
+    end = datetime.now(tz=UTC)
+    provider = default_provider()
+    bars = provider.bars(ticker.upper(), end - timedelta(days=days), end, tf)
+    if bars.is_empty():
+        console.print(f"[yellow]No bars for {ticker.upper()}.[/]")
+        raise typer.Exit(code=0)
+
+    res = walk_forward(bars, provider.capabilities(), scanner=scanner, n_windows=windows)
+    console.print(
+        f"\n[bold]{ticker.upper()}[/] {tf.value} {scanner} — walk-forward over "
+        f"{res.n_windows} windows ({res.n_trials_per_window} thresholds tried each)"
+    )
+    wt = Table(title="Out-of-sample by window")
+    for col in ("Window", "Chosen thr.", "OOS trades", "OOS P&L"):
+        wt.add_column(col, justify="right")
+    for w in res.windows:
+        wt.add_row(
+            str(w.index),
+            f"{w.chosen_threshold:.2f}",
+            str(w.oos_trades),
+            _usd(w.oos_pnl_cents),
+        )
+    console.print(wt)
+    m = res.oos_metrics
+    console.print(
+        f"Aggregated OOS: [bold]{_usd(m.total_pnl_cents)}[/] over {m.n_trades} trades, "
+        f"win rate {m.win_rate:.0%}"
+    )
+    console.print(
+        f"[bold]Deflated Sharpe P(SR>0) = {res.deflated_sharpe:.0%}[/] "
+        f"(deflated by {res.n_trials_per_window} trials/window)"
+    )
+    console.print(
+        "[dim]This is the number that matters: it's out-of-sample and discounted for "
+        "the thresholds we tried. Low = the edge didn't survive selection. Get years of "
+        "data (Alpaca) before reading much into it.[/]"
+    )
+
+
+@app.command()
 def learn(
     ticker: str,
     timeframe: str = typer.Option("5m", help="Bar interval"),
