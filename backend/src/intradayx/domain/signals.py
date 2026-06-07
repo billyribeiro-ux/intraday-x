@@ -53,6 +53,8 @@ class CauseKind(StrEnum):
     CLIMAX_REVERSAL = "climax_reversal"
     VWAP_RECLAIM = "vwap_reclaim"
     GAP_AND_GO = "gap_and_go"
+    MOMENTUM = "momentum"  # scalping: directional bar strength
+    BREAKOUT = "breakout"  # scalping: initial-balance / range break
     POC_REJECTION = "poc_rejection"
     VALUE_AREA_EDGE = "value_area_edge"
     INTERNALS_DIVERGENCE = "internals_divergence"  # capability-gated

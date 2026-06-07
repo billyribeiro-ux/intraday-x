@@ -17,9 +17,9 @@ router = APIRouter(prefix="/api", tags=["analysis"])
 
 @router.post("/scan", response_model=ScanResponse)
 def scan(req: ScanRequest) -> ScanResponse:
-    if req.scanner != "reversal":
-        raise HTTPException(status_code=400, detail="only 'reversal' is implemented")
-    return run_scan(req.symbol, req.timeframe, req.days)
+    if req.scanner not in ("reversal", "scalping"):
+        raise HTTPException(status_code=400, detail="scanner must be 'reversal' or 'scalping'")
+    return run_scan(req.symbol, req.timeframe, req.days, req.scanner)
 
 
 @router.post("/backtest", response_model=BacktestResponse)

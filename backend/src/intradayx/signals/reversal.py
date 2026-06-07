@@ -10,6 +10,8 @@ attribution). :class:`~intradayx.signals.engine.SignalEngine` turns rows into
 
 from __future__ import annotations
 
+from typing import Any
+
 import polars as pl
 
 from intradayx.attribution.detectors.price_volume import (
@@ -20,6 +22,8 @@ from intradayx.attribution.detectors.price_volume import (
     value_area_edge_top,
     volume_surge,
 )
+from intradayx.attribution.engine import reversal_attribution
+from intradayx.domain.signals import Attribution, SignalKind
 from intradayx.features.pipeline import FeatureSet
 from intradayx.signals.params import ReversalParams
 
@@ -99,3 +103,30 @@ def reversal_signal_frame(fs: FeatureSet, params: ReversalParams) -> pl.DataFram
     )
 
     return pl.concat([tops, bottoms]).sort("ts")
+
+
+class ReversalStrategy:
+    """Strategy adapter for the reversal scanner."""
+
+    name = "reversal"
+
+    def __init__(self, params: ReversalParams | None = None) -> None:
+        self.params = params or ReversalParams()
+
+    @property
+    def params_version(self) -> str:
+        return self.params.version
+
+    def signal_frame(self, fs: FeatureSet) -> pl.DataFrame:
+        return reversal_signal_frame(fs, self.params)
+
+    def attribution(self, row: dict[str, Any], data_completeness: float) -> Attribution:
+        return reversal_attribution(
+            is_top=row["kind"] == SignalKind.REVERSAL_TOP.value,
+            c_climax=float(row.get("c_climax") or 0.0),
+            c_volume=float(row.get("c_volume") or 0.0),
+            c_value_area=float(row.get("c_value_area") or 0.0),
+            c_poc=float(row.get("c_poc") or 0.0),
+            params=self.params,
+            data_completeness=data_completeness,
+        )

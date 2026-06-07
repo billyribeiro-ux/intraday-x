@@ -94,7 +94,7 @@ class SignalPoller:
             "poll_interval_s": self.interval_s,
             "market_session": market_session(),
             "watched": self.symbols,
-            "engine_version": get_engine().params.version,
+            "engine_version": get_engine().params_version,
         }
 
     def _fetch_and_process(self, symbol: str) -> list[Signal]:

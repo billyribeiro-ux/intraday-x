@@ -172,4 +172,4 @@ def run_backtest(
         notional_cents=notional_cents,
         max_hold_bars=max_hold_bars,
     )
-    return replace(result, params_version=eng.params.version)
+    return replace(result, params_version=eng.params_version)

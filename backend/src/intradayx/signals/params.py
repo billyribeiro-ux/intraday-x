@@ -26,3 +26,22 @@ class ReversalParams:
     poc_atr: float = 0.75  # ATRs from prior POC for full proximity score
     # Risk.
     atr_stop_mult: float = 0.25  # stop buffer beyond the pivot extreme, in ATRs
+
+
+@dataclass(frozen=True, slots=True)
+class ScalpingParams:
+    """Momentum/VWAP scalping — discrete entry triggers, tight risk."""
+
+    version: str = "scalp-0.1"
+    threshold: float = 0.45  # min confluence to emit
+    # Confluence weights (sum ~1.0).
+    w_vwap: float = 0.30
+    w_volume: float = 0.30
+    w_momentum: float = 0.25
+    w_breakout: float = 0.15
+    # Detector tunables.
+    rvol_full: float = 2.0  # scalps fire on lower rvol than reversals
+    vwap_atr: float = 1.0  # ATRs above/below VWAP for full side score
+    # Risk (tight — scalps).
+    atr_stop_mult: float = 0.5
+    atr_target_mult: float = 1.0

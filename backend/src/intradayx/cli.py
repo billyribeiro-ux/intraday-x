@@ -67,11 +67,15 @@ def scan(
     ticker: str,
     timeframe: str = typer.Option("5m", help="Bar interval: 1m,5m,15m,30m,1h,1d"),
     days: int = typer.Option(7, help="How many days back to scan"),
-    scanner: str = typer.Option("reversal", help="Scanner: reversal (scalping later)"),
+    scanner: str = typer.Option("reversal", help="Scanner: reversal | scalping"),
 ) -> None:
-    """Scan TICKER for reversal (tops/bottoms) signals and print them."""
-    if scanner != "reversal":
-        raise typer.BadParameter("only 'reversal' is implemented (scalping is a later phase)")
+    """Scan TICKER for reversal (tops/bottoms) or scalping signals and print them."""
+    from intradayx.signals.strategy import make_strategy
+
+    try:
+        strategy = make_strategy(scanner)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
 
     tf = Timeframe(timeframe)
     end = datetime.now(tz=UTC)
@@ -83,7 +87,7 @@ def scan(
         raise typer.Exit(code=0)
 
     caps = provider.capabilities()
-    signals = SignalEngine().scan(bars, caps)
+    signals = SignalEngine(strategy).scan(bars, caps)
     from intradayx.domain.capabilities import Capability
 
     if caps.supports(Capability.EARNINGS_CALENDAR):
@@ -97,14 +101,14 @@ def scan(
     if not signals:
         return
 
-    table = Table(title=f"{ticker.upper()} reversal signals", show_lines=False)
+    table = Table(title=f"{ticker.upper()} {scanner} signals", show_lines=False)
     for col in ("Time (UTC)", "Kind", "Side", "Conf", "ToD", "Entry", "Stop", "Why"):
         table.add_column(col, overflow="fold")
     for s in signals:
         side_color = "green" if s.side.is_bullish else "red"
         table.add_row(
             s.ts.strftime("%Y-%m-%d %H:%M"),
-            s.kind.value.replace("reversal_", ""),
+            s.kind.value.replace("reversal_", "").replace("scalp_", ""),
             f"[{side_color}]{s.side.value}[/]",
             f"{s.confidence:.2f}",
             s.time_of_day_bucket,
@@ -140,12 +144,19 @@ def backtest(
     timeframe: str = typer.Option("5m", help="Bar interval: 1m,5m,15m,30m,1h,1d"),
     days: int = typer.Option(60, help="How many days back to backtest"),
     max_hold: int = typer.Option(24, help="Max bars to hold a trade (time-stop)"),
+    scanner: str = typer.Option("reversal", help="Scanner: reversal | scalping"),
     export_dir: str = typer.Option(
         "", "--export", help="Write signals.csv, trades.csv & report.pdf to this directory"
     ),
 ) -> None:
-    """Backtest the reversal scanner on TICKER and print performance metrics."""
+    """Backtest a scanner on TICKER and print performance metrics."""
     from intradayx.backtest.runner import run_backtest
+    from intradayx.signals.strategy import make_strategy
+
+    try:
+        strategy = make_strategy(scanner)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
 
     tf = Timeframe(timeframe)
     end = datetime.now(tz=UTC)
@@ -156,7 +167,9 @@ def backtest(
         console.print(f"[yellow]No bars for {ticker.upper()} — nothing to backtest.[/]")
         raise typer.Exit(code=0)
 
-    res = run_backtest(bars, provider.capabilities(), max_hold_bars=max_hold)
+    res = run_backtest(
+        bars, provider.capabilities(), engine=SignalEngine(strategy), max_hold_bars=max_hold
+    )
     m = res.metrics
     pf = "∞" if m.profit_factor == float("inf") else f"{m.profit_factor:.2f}"
     from intradayx.attribution.validation import deflated_sharpe_ratio

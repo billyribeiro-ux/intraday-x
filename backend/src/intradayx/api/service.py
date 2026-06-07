@@ -48,15 +48,18 @@ def _epoch(ts: datetime) -> int:
     return int(ts.timestamp())
 
 
-def run_scan(symbol: str, timeframe: str, days: int) -> ScanResponse:
+def run_scan(symbol: str, timeframe: str, days: int, scanner: str = "reversal") -> ScanResponse:
+    from intradayx.features.pipeline import data_completeness_for
+    from intradayx.signals.engine import SignalEngine
+    from intradayx.signals.strategy import make_strategy
+
     tf = Timeframe(timeframe)
     provider = get_provider()
     end = datetime.now(tz=UTC)
     bars = provider.bars(symbol.upper(), end - timedelta(days=days), end, tf)
     caps = provider.capabilities()
-    from intradayx.features.pipeline import data_completeness_for
 
-    signals = get_engine().scan(bars, caps)
+    signals = SignalEngine(make_strategy(scanner)).scan(bars, caps)
     if caps.supports(Capability.EARNINGS_CALENDAR):
         from intradayx.attribution.catalysts import enrich_with_earnings
 

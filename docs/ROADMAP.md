@@ -29,14 +29,16 @@ actually works.
 | 7 | Capable vendor adapters (the real sub) | 🔒 BLOCKED — needs paid data sub (interface ready) |
 | 8 | Short-squeeze detector | ⬜ TODO — FINRA SI is free (biweekly/lagged); detector stub in place |
 | 9 | Gamma-squeeze / GEX | 🔒 BLOCKED — needs options-chain data (paid); detector stub in place |
-| 10 | Scalping scanner | ⬜ TODO — extension (same SignalEngine interface) |
+| 10 | Scalping scanner | ✅ DONE |
 | 11 | ThinkScript export | ✅ DONE |
 | 12 | Hardening / scale | ⬜ TODO — deploy (Vercel/Railway), TimescaleDB, model monitoring |
 
-**Current state:** everything achievable on free data is done (Phases 0–6 + 11).
-Phases 7 & 9 are gated on the paid data subscription — the capability system +
-dormant detector stubs mean they activate with no rewrite once a vendor is wired.
-Phases 8, 10, 12 are clear next extensions.
+**Current state:** everything achievable on free data is done (Phases 0–6, 10,
+11 + earnings catalyst). Both scanners (reversal + scalping) run through one
+strategy-driven engine. Phases 7 & 9 are gated on the paid data subscription —
+the capability system + dormant detector stubs mean they activate with no rewrite
+once a vendor is wired. Phase 8 (FINRA short interest, free) and Phase 12 (deploy)
+are the remaining extensions.
 
 **Bonus — earnings-catalyst attribution (extends Phase 6).** Earnings are the
 one catalyst nameable for free (`Capability.EARNINGS_CALENDAR`, yfinance). A
@@ -376,22 +378,30 @@ never a fabricated GEX.
 
 ---
 
-## Phase 10 — Scalping scanner ⬜ TODO
+## Phase 10 — Scalping scanner ✅ DONE
 
 **Goal.** Add the second scanner on the *same* `SignalEngine` interface, reusing
 all of backtest/live/export/dashboard.
 
 **Deliverables.**
-- `signals/scalping.py` — a second `Strategy` (momentum / VWAP-reclaim / RVOL /
-  $TICK-extreme) implementing the same engine interface.
-- `SignalKind.SCALP_LONG` / `SCALP_SHORT` already reserved in the domain.
+- ✅ Generalized `SignalEngine` to be **strategy-driven** (`signals/strategy.py`
+  `Strategy` protocol + `make_strategy`); `ReversalStrategy` and `ScalpingStrategy`
+  share the universal signal columns, so backtest/export/API/dashboard reuse them.
+- ✅ `signals/scalping.py` — discrete momentum entries: VWAP reclaim/rejection OR
+  Initial-Balance breakout, confirmed by relative volume + a directional bar;
+  tight ATR stop/targets; `ScalpingParams`.
+- ✅ `scalping_attribution` (VWAP / volume / momentum / breakout causes;
+  `CauseKind.MOMENTUM` + `BREAKOUT` added).
+- ✅ `--scanner reversal|scalping` on `scan` + `backtest`; API `/api/scan` honors it.
+- ⬜ **Deferred:** $TICK-extreme confirmation (needs Phase 7 internals).
 
-**Data dependency.** Phase 1 lake + (ideally) Phase 7 realtime internals for
-$TICK extremes.
+**Data dependency.** Phase 1 lake; richer with Phase 7 realtime internals.
 
-**Exit gate.** `intradayx scan SPY --scanner scalping` runs through the same
-backtest + live + export + dashboard paths; a parity test (as in Phase 3) passes
-for the scalping strategy.
+**Exit gate.** ✅ MET — `intradayx scan AAPL --scanner scalping` (30 signals,
+VWAP/Momentum attribution) and `backtest --scanner scalping` (142 signals → 133
+trades, P(Sharpe>0)) run through the shared engine; deterministic scalping anchor
+test (`test_scalping.py`) asserts the VWAP-reclaim long + tight stop/target; the
+36-test suite (incl. the reversal parity test) stays green after the refactor.
 
 ---
 
