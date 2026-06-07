@@ -62,7 +62,8 @@ def data_completeness_for(caps: ProviderCapabilities) -> float:
     """Share of the ideal data the active provider can supply (0–1).
 
     Price/volume is always present (0.5). Internals add 0.3, options 0.1, shorts
-    0.1. Under yfinance/Alpaca (no internals/options/shorts) this is 0.5 — and a
+    0.1. Under a price/volume-only vendor (yfinance/Twelve Data, no internals/
+    options/shorts) this is 0.5 — and a
     signal's confidence is scaled by it, so the UI/PDF can honestly say
     "attribution limited by available data".
     """

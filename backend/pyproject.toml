@@ -28,8 +28,6 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Phase 1 — Alpaca free-tier backbone (~7-10yr of free 1m bars)
-alpaca = ["alpaca-py>=0.21"]
 # Phase 3 — backtest+live runtime with parity
 backtest = ["nautilus_trader>=1.200"]
 # Phase 4 — CSV/PDF export
@@ -94,11 +92,10 @@ ignore = ["RUF002", "RUF003"]
 python_version = "3.12"
 strict = true
 files = ["src"]
-# The vendor SDKs (yfinance, alpaca-py) ship incomplete stubs; don't fail on them.
+# The vendor SDKs (yfinance) ship incomplete stubs; don't fail on them.
 [[tool.mypy.overrides]]
 module = [
     "yfinance.*",
-    "alpaca.*",
     "pandas",
     "pandas.*",
     "pandas_market_calendars.*",

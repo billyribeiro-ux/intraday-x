@@ -270,7 +270,7 @@ def walkforward(
     console.print(
         "[dim]This is the number that matters: it's out-of-sample and discounted for "
         "the thresholds we tried. Low = the edge didn't survive selection. Get years of "
-        "data (Alpaca) before reading much into it.[/]"
+        "data (e.g. Twelve Data) before reading much into it.[/]"
     )
 
 

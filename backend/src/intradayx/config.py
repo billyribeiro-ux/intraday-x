@@ -6,9 +6,9 @@ hardcoded constants. Override any field via an ``INTRADAYX_`` env var or a
 ``.env`` file, e.g. ``INTRADAYX_PROVIDERS='["polygon","yfinance"]'`` or
 ``INTRADAYX_WATCHED_SYMBOLS='["NVDA","TSLA"]'``.
 
-Vendor *credentials* (``ALPACA_API_KEY``, ``POLYGON_API_KEY``, …) stay as their
-own conventional env vars, read by each provider — this object only decides which
-vendors to *try* and in what order.
+Vendor *credentials* (``TWELVEDATA_API_KEY``, ``POLYGON_API_KEY``, …) stay as
+their own conventional env vars, read by each provider — this object only decides
+which vendors to *try* and in what order.
 """
 
 from __future__ import annotations
@@ -16,7 +16,16 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 
+from dotenv import load_dotenv
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Load a .env file into os.environ. Providers read their credentials
+# (TWELVEDATA_API_KEY, POLYGON_API_KEY, …) via os.environ directly — NOT through
+# the Settings object below — so without this a key in .env would silently never
+# reach the provider (it would fall back to yfinance). override=False so a real
+# shell env var still wins over the file. Mirrors the env_file tuple below.
+load_dotenv(".env", override=False)
+load_dotenv("../.env", override=False)
 
 
 class Settings(BaseSettings):
@@ -28,10 +37,10 @@ class Settings(BaseSettings):
 
     # Data-vendor priority order (lower index = preferred). Unknown names and
     # vendors whose credentials are absent are skipped; yfinance is the floor.
-    # Default is free, NON-BROKER sources only: Twelve Data (free key, multi-year
-    # 1m since 2020) preferred for depth, yfinance (no key) as the zero-setup floor.
-    # Polygon (pure data vendor) is preferred if its key is set. Alpaca is a broker
-    # — still registered, but opt-in only via INTRADAYX_PROVIDERS.
+    # Default is free, NON-BROKER data vendors only: Twelve Data (free key,
+    # multi-year 1m since 2020) preferred for depth, yfinance (no key) as the
+    # zero-setup floor. Polygon (pure data vendor) is preferred if its key is set.
+    # No brokers — add new data vendors via register_provider + INTRADAYX_PROVIDERS.
     providers: list[str] = ["polygon", "twelvedata", "yfinance"]
 
     # Live monitor.

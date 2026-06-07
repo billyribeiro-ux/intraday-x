@@ -17,7 +17,7 @@ jobs:
         with:
           enable-cache: true
       - name: Install (all extras)
-        run: uv sync --extra alpaca --extra export --extra api --extra ml
+        run: uv sync --extra export --extra api --extra ml
       - name: Ruff
         run: uv run ruff check src tests
       - name: Mypy (strict)

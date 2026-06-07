@@ -4,7 +4,7 @@ Providers are registered with a priority (lower = preferred). For a bars
 request the composite picks the highest-priority provider that (a) supports the
 timeframe's capability and (b) can reach back far enough, then falls through to
 the next on capability/lookback/empty. This is what makes "add a vendor later"
-free: a deep-history 1m request automatically routes to Alpaca over yfinance,
+free: a deep-history 1m request automatically routes to Twelve Data over yfinance,
 and internals/options route to whichever vendor declares them.
 """
 

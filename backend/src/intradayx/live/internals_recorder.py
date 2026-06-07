@@ -5,7 +5,7 @@ cheaply (see docs/DATA_PROVIDERS.md), so the strategy is to record our own from 
 realtime feed — the earlier we start, the more backtest history we accumulate.
 
 This scaffold is built now and runs against any provider. Under a price/volume
-vendor (yfinance/Alpaca) every internal is honestly SKIPPED (the provider raises
+vendor (yfinance/Twelve Data) every internal is honestly SKIPPED (the provider raises
 CapabilityError); it captures nothing rather than fabricating. The moment a
 capable feed (Schwab/IBKR/Polygon) is registered, the same code starts writing
 real series into the lake with no change.

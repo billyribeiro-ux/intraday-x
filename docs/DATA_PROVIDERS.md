@@ -42,7 +42,7 @@ Legend: ✅ supported · ⚠️ partial / shallow / caveated · ❌ not availabl
 | Vendor | Daily | Intraday 1m | Deep intraday hist. | Pre/post | Internals (breadth) | VIX family | Options chain | Options greeks/IV hist. | Short interest | Borrow rate | Live stream | Cost |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
 | **yfinance** | ✅ → IPO | ⚠️ ~7d | ❌ | ✅ | ❌ | ❌ | ✅ live only | ❌ | ❌ | ❌ | ⚠️ poll | Free (unofficial) |
-| **Alpaca (free IEX)** | ✅ | ✅ | ✅ ~7–10yr | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ | Free (creds) |
+| **Twelve Data (free)** | ✅ multi-yr | ✅ since 2020-02 | ✅ multi-yr 1m/5m | ✅ | ❌ | ⚠️ some indices | ❌ | ❌ | ❌ | ❌ | ⚠️ poll (WS paid) | Free (key, non-broker) |
 | **Polygon / "Massive"** | ✅ | ✅ ~10yr | ⚠️ index floors ~Mar 2023 | ✅ | ⚠️ unconfirmed | ✅ incl. VIX | ✅ | ⚠️ | ❌ | ❌ | ✅ | 💲 ~$79+/mo (unverified) |
 | **Databento** | ✅ | ✅ | ✅ 15+yr | ✅ | ❌ no index/internals | ❌ | ✅ OPRA | ⚠️ own greeks | ❌ | ❌ | ✅ | 💲 pay-as-you-go / GB |
 | **Schwab / thinkorSwim** | ✅ | ⚠️ ~30–48d | ❌ | ✅ | ✅ realtime only ($TICK/$TRIN/$VOLD) | ✅ realtime | ✅ | ❌ | ❌ | ❌ | ✅ realtime | Free (w/ account) |
@@ -69,18 +69,23 @@ Legend: ✅ supported · ⚠️ partial / shallow / caveated · ❌ not availabl
   `LIVE_STREAM` (poll-only). Raises `LookbackExceededError` past the windows
   above.
 
-### Alpaca (free IEX feed) — the backtest backbone
+### Twelve Data (free, non-broker) — the backtest backbone
 
-- **History:** ~7–10 years of 1-minute equity/ETF bars — what turns this from a
-  7-day demo into a real backtest. Provides **`vwap`** and **`trade_count`** per
-  bar (mapped to `trades`).
-- **Credentials:** `ALPACA_API_KEY` + `ALPACA_SECRET_KEY` (free at
-  alpaca.markets). `capabilities()` works without keys; `bars()` raises
-  `MissingCredentialsError` so a missing key fails loud.
-- **Capabilities declared** (`providers/alpaca_provider.py`): `DAILY_BARS`,
+- **History:** **1-minute bars back to 2020-02-10** plus multi-year 5-minute —
+  what turns this from a 7-day demo into a real backtest. A **pure data vendor,
+  not a broker.**
+- **Credentials:** `TWELVEDATA_API_KEY` (free, **no credit card**, at
+  twelvedata.com). `capabilities()` works without a key; `bars()` raises
+  `MissingCredentialsError` so a missing key fails loud. Verified live against
+  the free tier (real 1m/5m bars with volume).
+- **Free-tier limits:** ~800 credits/day, 8/min, 5000 bars/request — the provider
+  paginates by date (walking *backward* from `end`) and **fails loud** rather than
+  silently truncating a window it can't cover. The read-through cache
+  (`INTRADAYX_CACHE_ENABLED=true`) helps stay under the daily quota.
+- **Capabilities declared** (`providers/twelvedata_provider.py`): `DAILY_BARS`,
   `INTRADAY_BARS_1M`, `INTRADAY_BARS_5M`, `EXTENDED_HISTORY_INTRADAY`,
-  `PREPOST_MARKET`, `LIVE_STREAM`. Lookback ≈ 9 years (`_DEEP`) per intraday
-  timeframe.
+  `PREPOST_MARKET`. (Live WebSocket streaming is a paid Twelve Data feature; the
+  free tier is REST poll.)
 
 ### Polygon.io / "Massive"
 
@@ -136,7 +141,7 @@ Legend: ✅ supported · ⚠️ partial / shallow / caveated · ❌ not availabl
 | Phase | Vendor(s) added | What it unlocks |
 |---|---|---|
 | **0** | yfinance | Zero-setup demo; prove the pipeline end-to-end. |
-| **1** | **Alpaca (free)** + start **self-recording internals** | The ~7–10yr 1m backtest backbone; begin banking $TICK/$TRIN/$ADD/$VOLD from a realtime feed as soon as one exists. |
+| **1** | **Twelve Data (free, non-broker)** + start **self-recording internals** | The multi-year 1m backtest backbone (1m since 2020); begin banking $TICK/$TRIN/$ADD/$VOLD from a realtime feed as soon as one exists. |
 | **7** | Polygon/Massive, Schwab-TOS, Databento | Intraday VIX + options; Schwab-TOS as the realtime feed for the recorder; internals/options-gated features auto-activate. |
 | **9** | ORATS | 1-minute options greeks/IV → GEX / gamma-squeeze detector. |
 | **8** | Ortex + FINRA (+ IBKR borrow) | Fresh + free short data → short-squeeze detector (FINRA flagged stale). |

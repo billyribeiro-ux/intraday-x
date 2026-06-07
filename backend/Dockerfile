@@ -10,9 +10,9 @@ RUN pip install --no-cache-dir uv
 WORKDIR /app
 COPY pyproject.toml uv.lock README.md ./
 COPY src ./src
-RUN uv sync --extra alpaca --extra export --extra api --frozen
+RUN uv sync --extra export --extra api --frozen
 
 ENV PORT=8000
 EXPOSE 8000
-# Set ALPACA_API_KEY / POLYGON_API_KEY etc. in the host's env (never bake them in).
+# Set TWELVEDATA_API_KEY / POLYGON_API_KEY etc. in the host's env (never bake them in).
 CMD ["sh", "-c", "uv run intradayx serve --host 0.0.0.0 --port ${PORT}"]

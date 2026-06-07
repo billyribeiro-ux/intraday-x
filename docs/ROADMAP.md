@@ -95,9 +95,11 @@ accumulating as early as a realtime feed exists.
 - ✅ **yfinance** provider (`providers/yfinance_provider.py`) — zero-setup demo;
   declares lookbacks (1m≈7d, 5m/15m/30m≈60d, 1h≈730d) and raises
   `LookbackExceededError` past them; tz-aware → UTC conversion.
-- ✅ **Alpaca** provider (`providers/alpaca_provider.py`) — free IEX feed, the
-  ~7–10yr 1-minute backbone; lazy `alpaca-py` import; `MissingCredentialsError`
-  when keys absent; passes through `vwap` + `trade_count`→`trades`.
+- ✅ **Twelve Data** provider (`providers/twelvedata_provider.py`) — FREE,
+  non-broker; 1-minute back to 2020 + multi-year 5-minute = the backtest backbone;
+  paginates *backward* by date and **fails loud** rather than truncating;
+  `MissingCredentialsError` when the key is absent. Verified live (real bars).
+  (No broker integrations — Polygon is also wired as another data vendor.)
 - ✅ `CompositeProvider` (`data/composite.py`) — routes each request to the
   highest-priority capable vendor that can reach far enough back, falls through
   on capability/lookback/empty, unions capabilities, retains the `source` column.
@@ -112,14 +114,14 @@ accumulating as early as a realtime feed exists.
   coverage-based), `cache.py` read-through, and the free daily VIX/SKEW
   (Cboe/FRED) bootstrap for the recorder.
 
-**Data dependency.** yfinance (no creds) for the demo path; **Alpaca**
-(`ALPACA_API_KEY` + `ALPACA_SECRET_KEY`) for the multi-year backbone. Free daily
+**Data dependency.** yfinance (no creds) for the demo path; **Twelve Data**
+(`TWELVEDATA_API_KEY`, free non-broker) for the multi-year backbone. Free daily
 VIX/SKEW from Cboe/FRED for the internals-recorder bootstrap.
 
 **Exit gate.** `intradayx ingest SPY` lands multi-year 1-minute Parquet sourced
-from Alpaca into the lake; a DuckDB query returns those bars; the default test
+from Twelve Data into the lake; a DuckDB query returns those bars; the default test
 suite blocks network sockets (a stray real call fails loud), with an opt-in
-`@pytest.mark.network` smoke test hitting a tiny recent yfinance/Alpaca window.
+`@pytest.mark.network` smoke test hitting a tiny recent yfinance/Twelve Data window.
 
 ---
 
@@ -153,7 +155,7 @@ turns features into ranked, attributed signals. This is the first scanner
 - `signals/engine.py` (`SignalEngine.evaluate()`), `signals/reversal.py`,
   `signals/params.py`.
 
-**Data dependency.** Phase 1 lake (Alpaca 1m bars). Internals features stay
+**Data dependency.** Phase 1 lake (Twelve Data 1m bars). Internals features stay
 dormant until Phase 7.
 
 **Exit gate.** ✅ MET — `intradayx scan AAPL --scanner reversal` prints
@@ -208,7 +210,7 @@ research backtester.
   runner + Deflated Sharpe (Phase 6); `nautilus_adapter.py` (go-live).
 
 **Data dependency.** Phase 1 lake / providers for backtest; live poll from
-yfinance/Alpaca for the monitor.
+yfinance/Twelve Data for the monitor.
 
 **Exit gate.** ✅ MET — `intradayx backtest AAPL` runs on 55 days of real 5m data
 (102 signals → 90 trades) with metrics + per-ToD breakdown; a deterministic

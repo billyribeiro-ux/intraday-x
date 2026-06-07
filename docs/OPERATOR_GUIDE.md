@@ -145,7 +145,7 @@ provider exists, then they activate with **no rewrite**.
 ### How to wire a new vendor (concrete steps)
 
 1. Create `backend/src/intradayx/data/providers/<vendor>_provider.py`, subclass
-   `DataProvider` (see `yfinance_provider.py` / `alpaca_provider.py` as templates):
+   `DataProvider` (see `yfinance_provider.py` / `twelvedata_provider.py` as templates):
    - In `capabilities()`, add the `Capability.INTERNALS_*` flags it supports.
    - Implement `internals(symbol, start, end, timeframe)` returning an
      `InternalsSeries`; implement `bars(...)` if it also serves equities.
@@ -243,7 +243,7 @@ The stack is two services. Recommended split:
 ```
 backend/src/intradayx/
   domain/        # pure types + the Capability system
-  data/          # providers (yfinance, alpaca, + your new ones) + composite + factory
+  data/          # providers (yfinance, twelvedata, polygon, + your new ones) + composite + factory
   storage/       # Parquet/DuckDB lake
   features/      # VWAP, RVOL, ATR, volume profile, pivots, climax, squeeze
   signals/       # SignalEngine + reversal + scalping strategies

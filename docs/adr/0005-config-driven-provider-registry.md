@@ -20,12 +20,13 @@ Assemble the active data layer from **typed config** via a **provider
 registry**:
 
 - `config.py` is `pydantic-settings` (`env_prefix="INTRADAYX_"`); the
-  `providers: list[str]` field (default `["polygon", "alpaca",
+  `providers: list[str]` field (default `["polygon", "twelvedata",
   "yfinance"]`, overridable via `INTRADAYX_PROVIDERS`) is the **priority
-  list** — order is preference.
+  list** — order is preference. All defaults are **free, non-broker data
+  vendors** — no broker integrations.
 - `data/registry.py` exposes `register_provider(name, factory)` and
   `build_provider(settings)`. Vendors self-register by name (yfinance,
-  alpaca, polygon today). `build_provider` walks the config list, skips
+  twelvedata, polygon today). `build_provider` walks the config list, skips
   any name not in the registry, and skips any provider whose
   `is_configured()` is `False` (no credentials) — so a missing API key
   silently drops that vendor instead of erroring on every request.

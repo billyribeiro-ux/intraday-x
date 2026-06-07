@@ -5,8 +5,8 @@ card — with **1-minute bars back to 2020-02-10** and multi-year 5-minute, whic
 the deep intraday history yfinance lacks. Free-tier limits: ~800 credits/day,
 8/min, 5000 bars/request (we paginate by date). Set ``TWELVEDATA_API_KEY``.
 
-Implemented against the documented ``/time_series`` endpoint; not run here (no key
-in this environment) — verify once your key is in. The read-through cache
+Implemented against the documented ``/time_series`` endpoint and verified live
+against the free tier (pulls real 1m/5m bars with volume). The read-through cache
 (INTRADAYX_CACHE_ENABLED=true) helps stay under the daily quota.
 """
 

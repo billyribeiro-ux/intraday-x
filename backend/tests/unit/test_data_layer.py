@@ -13,7 +13,6 @@ import pytest
 
 from intradayx.config import Settings
 from intradayx.data.provider import CapabilityError, DataProvider
-from intradayx.data.providers.alpaca_provider import AlpacaProvider
 from intradayx.data.providers.polygon_provider import PolygonProvider
 from intradayx.data.providers.twelvedata_provider import TwelveDataProvider
 from intradayx.data.providers.yfinance_provider import YFinanceProvider
@@ -24,7 +23,6 @@ from intradayx.domain.internals import InternalSymbol
 
 PROVIDER_CLASSES: list[type[DataProvider]] = [
     YFinanceProvider,
-    AlpacaProvider,
     PolygonProvider,
     TwelveDataProvider,
 ]
@@ -70,7 +68,8 @@ def test_unsupported_surfaces_raise_not_empty(cls: type[DataProvider]) -> None:
 
 def test_builtin_providers_registered() -> None:
     names = registered_names()
-    assert {"yfinance", "twelvedata", "polygon", "alpaca"} <= set(names)
+    assert {"yfinance", "twelvedata", "polygon"} <= set(names)
+    assert "alpaca" not in names  # no brokers — data vendors only
 
 
 def test_build_provider_from_config() -> None:
@@ -85,7 +84,7 @@ def test_unknown_provider_falls_back_to_yfinance() -> None:
 
 def test_unconfigured_vendor_is_skipped(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("POLYGON_API_KEY", raising=False)
-    monkeypatch.delenv("ALPACA_API_KEY", raising=False)
-    comp = build_provider(Settings(providers=["polygon", "alpaca", "yfinance"]))
-    # No creds → polygon + alpaca skipped → only yfinance remains.
+    monkeypatch.delenv("TWELVEDATA_API_KEY", raising=False)
+    comp = build_provider(Settings(providers=["polygon", "twelvedata", "yfinance"]))
+    # No creds → polygon + twelvedata skipped → only yfinance remains.
     assert [p.name for p in comp._providers] == ["yfinance"]

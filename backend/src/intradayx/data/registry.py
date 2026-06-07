@@ -14,7 +14,6 @@ from collections.abc import Callable
 from intradayx.config import Settings, get_settings
 from intradayx.data.composite import CompositeProvider
 from intradayx.data.provider import DataProvider
-from intradayx.data.providers.alpaca_provider import AlpacaProvider
 from intradayx.data.providers.polygon_provider import PolygonProvider
 from intradayx.data.providers.twelvedata_provider import TwelveDataProvider
 from intradayx.data.providers.yfinance_provider import YFinanceProvider
@@ -33,11 +32,10 @@ def registered_names() -> list[str]:
     return list(_REGISTRY)
 
 
-# Built-in vendors.
+# Built-in vendors — all pure data vendors (no brokers).
 register_provider("yfinance", YFinanceProvider)
 register_provider("twelvedata", TwelveDataProvider)
 register_provider("polygon", PolygonProvider)
-register_provider("alpaca", AlpacaProvider)  # a broker; opt-in only (not in default)
 
 
 def build_provider(settings: Settings | None = None) -> DataProvider:

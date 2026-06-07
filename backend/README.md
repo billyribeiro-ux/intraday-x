@@ -7,17 +7,19 @@ and [`../docs/ARCHITECTURE.md`](../docs/ARCHITECTURE.md) for the design.
 ## Quick start
 
 ```bash
-uv sync --extra alpaca          # base + dev + Alpaca provider
+uv sync                         # base + dev (yfinance + Twelve Data + Polygon, all free non-broker)
 uv run intradayx version
 uv run pytest
 ```
+
+Set `TWELVEDATA_API_KEY` (free, no card, non-broker) in a `.env` for multi-year
+1-minute history — see [`../.env.example`](../.env.example).
 
 ## Dependency groups
 
 | Extra        | Phase | What it adds                                            |
 |--------------|-------|---------------------------------------------------------|
-| (base)       | 0–2   | numpy/pandas/polars/scipy/duckdb/yfinance/typer …       |
-| `alpaca`     | 1     | `alpaca-py` — free ~7–10yr 1-minute backtest backbone   |
+| (base)       | 0–2   | numpy/pandas/polars/scipy/duckdb/yfinance/httpx/typer … (incl. Twelve Data + Polygon, free non-broker) |
 | `backtest`   | 3     | `nautilus_trader` — backtest↔live parity engine         |
 | `export`     | 4     | `reportlab` + `matplotlib` — CSV/PDF reports            |
 | `api`        | 5     | `fastapi` + `uvicorn` + `apscheduler` — API & live WS   |

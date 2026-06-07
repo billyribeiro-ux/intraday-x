@@ -16,7 +16,7 @@ intraday-x/
     src/intradayx/
       domain/        bars internals options shorts signals events capabilities   # pure types, no I/O
       data/          provider.py(ABC) composite.py cache.py
-                     providers/{yfinance,alpaca,polygon,schwab,databento,finra_shorts}.py
+                     providers/{yfinance,twelvedata,polygon,schwab,databento,finra_shorts}.py
       storage/       lake.py duck.py schema.py catalog.py
       features/      indicators volume_profile pivots session gaps climax internals_ctx pipeline
       attribution/   detectors/{volume_surge,climax_reversal,vwap_reclaim,gap_and_go,short_squeeze*,gamma_squeeze*}
@@ -122,7 +122,7 @@ capability and (b) can reach back far enough, then falls through on
 capability/lookback/empty. `capabilities()` unions every member's support set
 and takes the *deepest* lookback per timeframe. The merged `BarSet` retains the
 `source` column, keeping every row auditable. This is what makes "add a vendor
-later" free: a deep-history 1m request automatically routes to Alpaca over
+later" free: a deep-history 1m request automatically routes to Twelve Data over
 yfinance, and internals/options route to whichever vendor declares them.
 
 ### How completeness flows into a Signal
@@ -157,7 +157,7 @@ output, not a silent gap.
 ```
 ticker
   ▼
-DataProvider  (yfinance │ Alpaca │ … via CompositeProvider, capability-gated)
+DataProvider  (yfinance │ Twelve Data │ Polygon │ … via CompositeProvider, capability-gated)
   ▼
 Parquet lake + DuckDB   (storage/ — Hive-partitioned, gap-detected)
   ▼

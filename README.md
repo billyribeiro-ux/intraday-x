@@ -65,7 +65,7 @@ Works out of the box on **yfinance** (zero setup; ~7 days of 1-minute, ~60 days
 of 5-minute). For real multi-year backtests, add a free, **non-broker**
 **Twelve Data** key (1-minute back to 2020; see [`.env.example`](.env.example)) —
 the composite router prefers it automatically. Polygon (data vendor) is also
-wired. (Alpaca is a broker — registered but opt-in only.)
+wired. We use **free, non-broker data vendors only** — no broker integrations.
 Deep historical intraday market internals ($TICK/$TRIN/…) aren't sold cheaply —
 the internals self-recorder banks them once you connect a realtime feed. See
 [`docs/DATA_PROVIDERS.md`](docs/DATA_PROVIDERS.md).
