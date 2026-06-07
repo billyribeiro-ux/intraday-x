@@ -10,7 +10,7 @@ and internals/options route to whichever vendor declares them.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 import polars as pl
 
@@ -145,3 +145,11 @@ class CompositeProvider(DataProvider):
             except CapabilityError:
                 continue
         raise CapabilityError(self.name, Capability.BORROW_RATE)
+
+    def earnings_dates(self, ticker: str) -> list[date]:
+        for prov in self._providers:
+            try:
+                return prov.earnings_dates(ticker)
+            except CapabilityError:
+                continue
+        raise CapabilityError(self.name, Capability.EARNINGS_CALENDAR)

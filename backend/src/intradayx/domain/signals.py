@@ -59,6 +59,7 @@ class CauseKind(StrEnum):
     INTERNALS_EXTREME = "internals_extreme"  # capability-gated
     SHORT_SQUEEZE = "short_squeeze"  # Phase 8 (gated)
     GAMMA_SQUEEZE = "gamma_squeeze"  # Phase 9 (gated)
+    EARNINGS = "earnings"  # move coincides with scheduled earnings (a named catalyst)
     UNEXPLAINED = "unexplained"  # probable external catalyst; cause unidentified
 
 

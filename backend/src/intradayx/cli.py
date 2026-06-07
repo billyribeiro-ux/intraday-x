@@ -82,7 +82,14 @@ def scan(
         console.print(f"[yellow]No bars returned for {ticker.upper()} — nothing to scan.[/]")
         raise typer.Exit(code=0)
 
-    signals = SignalEngine().scan(bars, provider.capabilities())
+    caps = provider.capabilities()
+    signals = SignalEngine().scan(bars, caps)
+    from intradayx.domain.capabilities import Capability
+
+    if caps.supports(Capability.EARNINGS_CALENDAR):
+        from intradayx.attribution.catalysts import enrich_with_earnings
+
+        signals = enrich_with_earnings(signals, provider.earnings_dates(ticker.upper()))
     console.print(
         f"Scanned [bold]{ticker.upper()}[/] {tf.value} — {len(bars)} bars, "
         f"[bold cyan]{len(signals)}[/] signal(s)."
@@ -242,6 +249,28 @@ def learn(
         shap_table.add_row(feature, f"{val:.4f}")
     console.print(shap_table)
     console.print(f"[dim]{MODEL_ATTRIBUTION_CAVEAT}[/]")
+
+
+@app.command()
+def earnings(ticker: str) -> None:
+    """Print scheduled-earnings dates (a named catalyst) for TICKER."""
+    from intradayx.domain.capabilities import Capability
+
+    provider = default_provider()
+    if not provider.capabilities().supports(Capability.EARNINGS_CALENDAR):
+        console.print("[yellow]No provider supports an earnings calendar.[/]")
+        raise typer.Exit(code=0)
+    dates = provider.earnings_dates(ticker.upper())
+    if not dates:
+        console.print(f"[yellow]No earnings dates found for {ticker.upper()}.[/]")
+        raise typer.Exit(code=0)
+    today = datetime.now(tz=UTC).date()
+    table = Table(title=f"{ticker.upper()} earnings dates")
+    table.add_column("Date")
+    table.add_column("When")
+    for d in dates:
+        table.add_row(d.isoformat(), "upcoming" if d >= today else "past")
+    console.print(table)
 
 
 @app.command()

@@ -33,10 +33,18 @@ actually works.
 | 11 | ThinkScript export | ✅ DONE |
 | 12 | Hardening / scale | ⬜ TODO — deploy (Vercel/Railway), TimescaleDB, model monitoring |
 
-**Current state:** everything achievable on free data is done (Phases 0–6 + 11,
-8 commits). Phases 7 & 9 are gated on the paid data subscription — the
-capability system + dormant detector stubs mean they activate with no rewrite
-once a vendor is wired. Phases 8, 10, 12 are clear next extensions.
+**Current state:** everything achievable on free data is done (Phases 0–6 + 11).
+Phases 7 & 9 are gated on the paid data subscription — the capability system +
+dormant detector stubs mean they activate with no rewrite once a vendor is wired.
+Phases 8, 10, 12 are clear next extensions.
+
+**Bonus — earnings-catalyst attribution (extends Phase 6).** Earnings are the
+one catalyst nameable for free (`Capability.EARNINGS_CALENDAR`, yfinance). A
+signal landing within ±1 day of a scheduled-earnings date is attributed
+`CauseKind.EARNINGS` (`attribution/catalysts.py`), turning "cause uncertain" into
+"Coincides with scheduled earnings". Wired into `scan`, the API, and a new
+`intradayx earnings <TICKER>` command. Verified on AAPL (04-30 earnings →
+post-earnings reversal signals correctly tagged).
 
 ---
 

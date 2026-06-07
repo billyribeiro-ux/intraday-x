@@ -29,6 +29,7 @@ from intradayx.backtest.runner import run_backtest
 from intradayx.data.factory import default_provider
 from intradayx.data.provider import DataProvider
 from intradayx.domain.bars import Timeframe
+from intradayx.domain.capabilities import Capability
 from intradayx.features.pipeline import build_features
 from intradayx.signals.engine import SignalEngine
 
@@ -56,6 +57,10 @@ def run_scan(symbol: str, timeframe: str, days: int) -> ScanResponse:
     from intradayx.features.pipeline import data_completeness_for
 
     signals = get_engine().scan(bars, caps)
+    if caps.supports(Capability.EARNINGS_CALENDAR):
+        from intradayx.attribution.catalysts import enrich_with_earnings
+
+        signals = enrich_with_earnings(signals, provider.earnings_dates(symbol.upper()))
     return ScanResponse(
         symbol=symbol.upper(),
         timeframe=tf.value,

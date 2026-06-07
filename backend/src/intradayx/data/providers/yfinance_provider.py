@@ -8,7 +8,8 @@ Yahoo endpoint ("personal use only") — fine for prototyping, not production.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+import logging
+from datetime import UTC, date, datetime, timedelta
 
 import pandas as pd
 import polars as pl
@@ -17,6 +18,8 @@ import yfinance as yf
 from intradayx.data.provider import DataProvider, Session
 from intradayx.domain.bars import BAR_SCHEMA, BarSet, Timeframe
 from intradayx.domain.capabilities import Capability, ProviderCapabilities
+
+logger = logging.getLogger(__name__)
 
 _INTERVAL: dict[Timeframe, str] = {
     Timeframe.M1: "1m",
@@ -45,6 +48,7 @@ class YFinanceProvider(DataProvider):
                     Capability.INTRADAY_BARS_5M,
                     Capability.PREPOST_MARKET,
                     Capability.OPTIONS_CHAIN_LIVE,
+                    Capability.EARNINGS_CALENDAR,
                     Capability.LIVE_STREAM,  # poll-only
                 }
             ),
@@ -104,3 +108,15 @@ class YFinanceProvider(DataProvider):
             source=pl.lit(self.name),
         )
         return BarSet(ticker, timeframe, frame)
+
+    def earnings_dates(self, ticker: str) -> list[date]:
+        try:
+            df = yf.Ticker(ticker).get_earnings_dates(limit=24)
+        except Exception as exc:  # best-effort, but log — never fail silently
+            logger.warning("earnings fetch failed for %s: %s", ticker, exc)
+            return []
+        if df is None or df.empty:
+            return []
+        # Index is the earnings datetime (US/Eastern). Use the NY session date.
+        idx = pd.to_datetime(df.index, utc=True).tz_convert("America/New_York")
+        return sorted({d.date() for d in idx})

@@ -12,7 +12,7 @@ overrides what it genuinely supports, and the rest of the system can gate on
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from datetime import datetime
+from datetime import date, datetime
 from enum import StrEnum
 
 from intradayx.domain.bars import BarSet, Timeframe
@@ -101,6 +101,10 @@ class DataProvider(ABC):
 
     def borrow_rate(self, ticker: str, start: datetime, end: datetime) -> list[BorrowRate]:
         raise CapabilityError(self.name, Capability.BORROW_RATE)
+
+    def earnings_dates(self, ticker: str) -> list[date]:
+        """Scheduled-earnings dates (past + upcoming), ascending. A named catalyst."""
+        raise CapabilityError(self.name, Capability.EARNINGS_CALENDAR)
 
     # --- shared helpers ---
 

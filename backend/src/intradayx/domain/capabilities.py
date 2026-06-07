@@ -47,6 +47,9 @@ class Capability(StrEnum):
     SHORT_VOLUME = "short_volume"
     BORROW_RATE = "borrow_rate"
 
+    # --- catalysts ---
+    EARNINGS_CALENDAR = "earnings_calendar"  # scheduled-earnings dates (free via yfinance)
+
 
 # Convenience groupings used by feature/detector gating.
 INTERNALS_BREADTH: frozenset[Capability] = frozenset(
