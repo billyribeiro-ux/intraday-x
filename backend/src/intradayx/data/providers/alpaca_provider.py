@@ -40,6 +40,9 @@ class AlpacaProvider(DataProvider):
         self._secret_key = secret_key or os.environ.get("ALPACA_SECRET_KEY")
         self._client: Any = None
 
+    def is_configured(self) -> bool:
+        return bool(self._api_key and self._secret_key)
+
     def capabilities(self) -> ProviderCapabilities:
         return ProviderCapabilities(
             provider_name=self.name,

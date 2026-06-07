@@ -64,6 +64,13 @@ class DataProvider(ABC):
     def capabilities(self) -> ProviderCapabilities:
         """Declare what this provider supports and how deep its history reaches."""
 
+    def is_configured(self) -> bool:
+        """Whether this provider has the credentials it needs. Credential-free
+        providers (e.g. yfinance) are always configured; the registry skips
+        unconfigured vendors so a missing key silently drops the vendor rather
+        than erroring on every request."""
+        return True
+
     @abstractmethod
     def bars(
         self,

@@ -16,22 +16,23 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from intradayx.api.routes import analysis, market
 from intradayx.api.ws import ConnectionManager, SignalPoller, status_message
-
-WATCHED_SYMBOLS = ["AAPL", "SPY"]
-POLL_INTERVAL_S = 30
+from intradayx.config import get_settings
 
 manager = ConnectionManager()
 
 
 @contextlib.asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    poller = SignalPoller(manager, WATCHED_SYMBOLS, interval_s=POLL_INTERVAL_S)
+    settings = get_settings()
+    poller = SignalPoller(
+        manager, settings.watched_symbols, interval_s=settings.poll_interval_s
+    )
     app.state.poller = poller
     scheduler = AsyncIOScheduler()
     scheduler.add_job(
         poller.poll,
         "interval",
-        seconds=POLL_INTERVAL_S,
+        seconds=settings.poll_interval_s,
         id="signal_poll",
         max_instances=1,
         coalesce=True,

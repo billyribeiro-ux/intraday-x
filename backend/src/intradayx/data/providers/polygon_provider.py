@@ -52,6 +52,9 @@ class PolygonProvider(DataProvider):
     def __init__(self, api_key: str | None = None) -> None:
         self._api_key = api_key or os.environ.get("POLYGON_API_KEY")
 
+    def is_configured(self) -> bool:
+        return bool(self._api_key)
+
     def capabilities(self) -> ProviderCapabilities:
         return ProviderCapabilities(
             provider_name=self.name,

@@ -10,6 +10,7 @@ and internals/options route to whichever vendor declares them.
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, date, datetime, timedelta
 
 import polars as pl
@@ -24,6 +25,8 @@ from intradayx.domain.capabilities import (
 from intradayx.domain.internals import InternalsSeries, InternalSymbol
 from intradayx.domain.options import OptionChain
 from intradayx.domain.shorts import BorrowRate, ShortInterest, ShortVolume
+
+logger = logging.getLogger(__name__)
 
 
 def required_capability(timeframe: Timeframe) -> Capability:
@@ -91,6 +94,15 @@ class CompositeProvider(DataProvider):
             except (CapabilityError, LookbackExceededError, DataError):
                 continue
             if not bs.is_empty():
+                logger.debug(
+                    "bars %s %s [%s..%s] served by %s (%d rows)",
+                    ticker,
+                    timeframe.value,
+                    start.date(),
+                    end.date(),
+                    prov.name,
+                    len(bs),
+                )
                 return bs
         if not attempted:
             raise DataError(
