@@ -265,6 +265,55 @@ def learn(
 
 
 @app.command()
+def squeeze(
+    ticker: str,
+    timeframe: str = typer.Option("5m", help="Bar interval"),
+    days: int = typer.Option(30, help="How many days back to scan"),
+    threshold: float = typer.Option(0.5, help="Min squeeze-signature score (0-1)"),
+) -> None:
+    """Scan for the price/volume SHORT-SQUEEZE SIGNATURE (not confirmed by short interest)."""
+    import polars as pl
+
+    from intradayx.features.pipeline import build_features
+
+    tf = Timeframe(timeframe)
+    end = datetime.now(tz=UTC)
+    provider = default_provider()
+    bars = provider.bars(ticker.upper(), end - timedelta(days=days), end, tf)
+    if bars.is_empty():
+        console.print(f"[yellow]No bars for {ticker.upper()}.[/]")
+        raise typer.Exit(code=0)
+
+    df = build_features(bars, provider.capabilities()).df
+    hits = df.filter(pl.col("squeeze_signature_score") >= threshold).sort(
+        "squeeze_signature_score", descending=True
+    )
+    console.print(
+        f"[bold]{ticker.upper()}[/] {tf.value} — [bold cyan]{hits.height}[/] "
+        f"squeeze-signature bar(s) (score >= {threshold})"
+    )
+    if hits.height:
+        table = Table(title=f"{ticker.upper()} short-squeeze signature")
+        for col in ("Time (UTC)", "Close", "RVOL", "Range/ATR", "New high", "Score"):
+            table.add_column(col, justify="right")
+        for row in hits.head(25).iter_rows(named=True):
+            table.add_row(
+                row["ts"].strftime("%Y-%m-%d %H:%M"),
+                f"{row['close']:.2f}",
+                f"{row['rvol']:.1f}" if row["rvol"] is not None else "-",
+                f"{row['range_atr']:.1f}" if row["range_atr"] is not None else "-",
+                "yes" if row["new_high_break"] else "no",
+                f"{row['squeeze_signature_score']:.2f}",
+            )
+        console.print(table)
+    console.print(
+        "[dim]Price/volume signature ONLY — NOT confirmed by short interest. A real "
+        "squeeze needs SI%, days-to-cover and cost-to-borrow (a paid feed, Phase 8). "
+        "This flags the footprint, not the cause.[/]"
+    )
+
+
+@app.command()
 def earnings(ticker: str) -> None:
     """Print scheduled-earnings dates (a named catalyst) for TICKER."""
     from intradayx.domain.capabilities import Capability

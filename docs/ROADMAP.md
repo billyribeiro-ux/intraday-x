@@ -27,7 +27,7 @@ actually works.
 | 5 | API + Svelte dashboard (live-wired) | ✅ DONE |
 | 6 | Attribution ML ("self-learning culprit") | ✅ DONE (core) |
 | 7 | Capable vendor adapters (the real sub) | 🔒 BLOCKED — needs paid data sub (interface ready) |
-| 8 | Short-squeeze detector | ⬜ TODO — FINRA SI is free (biweekly/lagged); detector stub in place |
+| 8 | Short-squeeze detector | 🟡 PARTIAL — price/volume signature DONE (free); SI-confirmed needs paid feed |
 | 9 | Gamma-squeeze / GEX | 🔒 BLOCKED — needs options-chain data (paid); detector stub in place |
 | 10 | Scalping scanner | ✅ DONE |
 | 11 | ThinkScript export | ✅ DONE |
@@ -335,10 +335,19 @@ without touching feature/detector code.
 
 ---
 
-## Phase 8 — Short-squeeze detector ⬜ TODO
+## Phase 8 — Short-squeeze detector 🟡 PARTIAL
 
-**Goal.** Activate the `short_squeeze` detector using short-interest, short-
-volume, and borrow data — flagging stale data rather than guessing.
+**Done (free, no new data source):** the price/volume **squeeze SIGNATURE**
+(`features/squeeze.py` `add_squeeze_signature` → `squeeze_signature_score`):
+extreme RVOL + vertical range + close-at-high + breaking recent highs. Exposed
+via `intradayx squeeze <TICKER>`, honestly labelled "footprint, NOT confirmed by
+short interest". Verified on AAPL (12 signature bars, RVOL up to 10×).
+
+**Still TODO (needs data):** SI-confirmed squeeze — short interest %,
+days-to-cover, cost-to-borrow.
+
+**Goal (remainder).** Activate the SI-confirmed `short_squeeze` detector using
+short-interest, short-volume, and borrow data — flagging stale data, not guessing.
 
 **Deliverables.**
 - Providers: FINRA short interest (free, biweekly, ~2-week lag — flagged stale)

@@ -23,6 +23,7 @@ from intradayx.features.gaps import add_gaps
 from intradayx.features.indicators import add_atr, add_rvol, add_vwap_session
 from intradayx.features.pivots import add_pivots
 from intradayx.features.session import add_session_columns
+from intradayx.features.squeeze import add_squeeze_signature
 from intradayx.features.volume_profile import add_volume_profile
 
 # Feature columns this pipeline produces (used to build the manifest).
@@ -53,6 +54,7 @@ PRICE_VOLUME_FEATURES: tuple[str, ...] = (
     "close_position",
     "climax_up_score",
     "climax_down_score",
+    "squeeze_signature_score",
 )
 
 
@@ -123,6 +125,7 @@ def build_features(bars: BarSet, caps: ProviderCapabilities) -> FeatureSet:
     df = add_gaps(df)
     df = add_pivots(df)
     df = add_climax(df)
+    df = add_squeeze_signature(df)  # needs range_atr + close_position from climax
 
     # Internals/options/short features would be added here, gated on
     # caps.supported. Dormant under price/volume-only vendors by design.
