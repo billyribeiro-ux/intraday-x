@@ -89,7 +89,16 @@ strict = true
 files = ["src"]
 # The vendor SDKs (yfinance, alpaca-py) ship incomplete stubs; don't fail on them.
 [[tool.mypy.overrides]]
-module = ["yfinance.*", "alpaca.*", "pandas", "pandas.*", "pandas_market_calendars.*", "duckdb.*"]
+module = [
+    "yfinance.*",
+    "alpaca.*",
+    "pandas",
+    "pandas.*",
+    "pandas_market_calendars.*",
+    "duckdb.*",
+    "reportlab.*",
+    "matplotlib.*",
+]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

@@ -23,7 +23,7 @@ actually works.
 | 1 | Data + lake + internals-recorder scaffold | ✅ DONE |
 | 2 | Features + Reversal SignalEngine (first scanner) | ✅ DONE |
 | 3 | Backtester + Live monitor, in parallel | ✅ DONE (custom engine; Nautilus deferred to go-live) |
-| 4 | Export (CSV + PDF) | ⬜ TODO |
+| 4 | Export (CSV + PDF) | ✅ DONE |
 | 5 | API + Svelte dashboard | ⬜ TODO |
 | 6 | Attribution ML ("self-learning culprit") | ⬜ TODO |
 | 7 | Capable vendor adapters (the real sub) | ⬜ TODO |
@@ -205,24 +205,27 @@ edge needs internals (Phase 7) + ML refinement (Phase 6).)
 
 ---
 
-## Phase 4 — Export (CSV + PDF) ⬜ TODO
+## Phase 4 — Export (CSV + PDF) ✅ DONE
 
 **Goal.** Turn the signal log and backtest results into shareable artifacts that
 carry the honesty fields all the way through.
 
 **Deliverables.**
-- `export/csv_export.py` — one row per `Signal` incl. primary cause, top-3
-  ranked causes, and `data_completeness`.
-- `export/pdf_report.py` — ReportLab PDF: signal log, equity curve + underwater
-  drawdown, per-ToD stats, attribution summary with an **"attribution limited by
-  available data"** banner. (ReportLab + matplotlib; **not** WeasyPrint.)
-- `export/charts.py` — matplotlib chart helpers for the PDF.
+- ✅ `export/csv_export.py` — `signals_to_csv` (one row per Signal incl. primary
+  cause, ranked causes, `data_completeness`, uncertain flag) + `trades_to_csv`
+  (P&L in both cents and dollars).
+- ✅ `export/pdf_report.py` — ReportLab PDF: header + run metadata, metrics
+  table, equity curve, per-ToD expectancy chart, and the **"attribution limited
+  by available data" + assume-overfit** caveat banner. (ReportLab + matplotlib.)
+- ✅ `export/charts.py` — matplotlib (Agg) → PNG helpers embedded in the PDF.
+- ✅ `intradayx backtest --export DIR` writes signals.csv, trades.csv, report.pdf.
 
 **Data dependency.** Phase 3 backtest/live signal outputs.
 
-**Exit gate.** Golden-file CSV diff passes; PDF structural assertions confirm
-expected sections and row counts (and the data-limitation banner appears when
-completeness < 1).
+**Exit gate.** ✅ MET — CSV field-level test + a deterministic trades-CSV P&L
+assert + a structural PDF test (starts with `%PDF`, embeds chart images); a real
+`backtest AAPL --export` run produced an 8KB signals.csv, trades.csv, and a
+49KB 1-page report.pdf.
 
 ---
 

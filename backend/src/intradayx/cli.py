@@ -121,6 +121,9 @@ def backtest(
     timeframe: str = typer.Option("5m", help="Bar interval: 1m,5m,15m,30m,1h,1d"),
     days: int = typer.Option(60, help="How many days back to backtest"),
     max_hold: int = typer.Option(24, help="Max bars to hold a trade (time-stop)"),
+    export_dir: str = typer.Option(
+        "", "--export", help="Write signals.csv, trades.csv & report.pdf to this directory"
+    ),
 ) -> None:
     """Backtest the reversal scanner on TICKER and print performance metrics."""
     from intradayx.backtest.runner import run_backtest
@@ -158,6 +161,21 @@ def backtest(
         for bucket, st in m.per_tod.items():
             tod.add_row(bucket, str(st.n), f"{st.win_rate:.0%}", _usd(st.expectancy_cents))
         console.print(tod)
+
+    if export_dir:
+        from pathlib import Path
+
+        from intradayx.export.csv_export import signals_to_csv, trades_to_csv
+        from intradayx.export.pdf_report import backtest_report_pdf
+
+        out = Path(export_dir)
+        out.mkdir(parents=True, exist_ok=True)
+        signals_to_csv(res.signals, out / "signals.csv")
+        trades_to_csv(res, out / "trades.csv")
+        backtest_report_pdf(res, out / "report.pdf")
+        console.print(
+            f"Exported [green]signals.csv[/], [green]trades.csv[/], [green]report.pdf[/] → {out}"
+        )
 
     console.print(
         "[dim]Edge is assumed overfit until proven otherwise: realistic costs are "

@@ -12,7 +12,7 @@ fallback). The boundary it shares with live is `SignalEngine.evaluate`.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from enum import StrEnum
 
@@ -57,6 +57,7 @@ class BacktestResult:
     metrics: BacktestMetrics
     n_signals: int
     params_version: str = "0"
+    signals: list[Signal] = field(default_factory=list)
 
 
 def simulate_trades(
@@ -148,6 +149,7 @@ def simulate_trades(
         equity_curve=equity_curve,
         metrics=compute_metrics(trades, notional_cents),
         n_signals=len(signals),
+        signals=sorted(signals, key=lambda s: s.ts),
     )
 
 
@@ -170,12 +172,4 @@ def run_backtest(
         notional_cents=notional_cents,
         max_hold_bars=max_hold_bars,
     )
-    return BacktestResult(
-        symbol=result.symbol,
-        timeframe=result.timeframe,
-        trades=result.trades,
-        equity_curve=result.equity_curve,
-        metrics=result.metrics,
-        n_signals=result.n_signals,
-        params_version=eng.params.version,
-    )
+    return replace(result, params_version=eng.params.version)
