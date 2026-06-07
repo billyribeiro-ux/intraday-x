@@ -26,12 +26,17 @@ actually works.
 | 4 | Export (CSV + PDF) | ✅ DONE |
 | 5 | API + Svelte dashboard (live-wired) | ✅ DONE |
 | 6 | Attribution ML ("self-learning culprit") | ✅ DONE (core) |
-| 7 | Capable vendor adapters (the real sub) | ⬜ TODO |
-| 8 | Short-squeeze detector | ⬜ TODO |
-| 9 | Gamma-squeeze / GEX | ⬜ TODO |
-| 10 | Scalping scanner | ⬜ TODO |
+| 7 | Capable vendor adapters (the real sub) | 🔒 BLOCKED — needs paid data sub (interface ready) |
+| 8 | Short-squeeze detector | ⬜ TODO — FINRA SI is free (biweekly/lagged); detector stub in place |
+| 9 | Gamma-squeeze / GEX | 🔒 BLOCKED — needs options-chain data (paid); detector stub in place |
+| 10 | Scalping scanner | ⬜ TODO — extension (same SignalEngine interface) |
 | 11 | ThinkScript export | ✅ DONE |
-| 12 | Hardening / scale | ⬜ TODO |
+| 12 | Hardening / scale | ⬜ TODO — deploy (Vercel/Railway), TimescaleDB, model monitoring |
+
+**Current state:** everything achievable on free data is done (Phases 0–6 + 11,
+8 commits). Phases 7 & 9 are gated on the paid data subscription — the
+capability system + dormant detector stubs mean they activate with no rewrite
+once a vendor is wired. Phases 8, 10, 12 are clear next extensions.
 
 ---
 
