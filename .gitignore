@@ -1,0 +1,38 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+dist/
+build/
+
+# --- uv ---
+# uv.lock IS committed (reproducible installs); the venv is not.
+
+# --- Node / SvelteKit ---
+node_modules/
+.svelte-kit/
+frontend/build/
+frontend/.vercel/
+*.log
+
+# --- Data lake (local only; never commit market data) ---
+/data/
+*.duckdb
+*.parquet
+
+# --- Secrets ---
+.env
+.env.*
+!.env.example
+
+# --- OS / editor ---
+.DS_Store
+.idea/
+.vscode/

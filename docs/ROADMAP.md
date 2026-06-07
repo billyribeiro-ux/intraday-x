@@ -1,0 +1,408 @@
+# intraday-x — ROADMAP
+
+The master "so we don't forget" plan. Every phase has a **Goal**, concrete
+**Deliverables**, the **Data dependency** it rides on, and an **Exit gate** —
+the *runtime evidence* that proves the phase is done. "Tests pass" is necessary
+but never sufficient: each gate names an artifact (a CLI run, a query result, a
+parity assertion, a Playwright CLS measurement) that demonstrates the feature
+actually works.
+
+## Status legend
+
+| Marker | Meaning |
+|---|---|
+| ✅ DONE | Shipped and meets its exit gate. |
+| 🔵 IN PROGRESS | Partially landed; remaining items called out. |
+| ⬜ TODO | Not started. |
+
+## Status at a glance
+
+| Phase | Title | Status |
+|---|---|---|
+| 0 | Scaffold | ✅ DONE |
+| 1 | Data + lake + internals-recorder scaffold | ✅ DONE |
+| 2 | Features + Reversal SignalEngine (first scanner) | ✅ DONE |
+| 3 | Backtester (Nautilus) + Live monitor, in parallel | ⬜ TODO (next) |
+| 4 | Export (CSV + PDF) | ⬜ TODO |
+| 5 | API + Svelte dashboard | ⬜ TODO |
+| 6 | Attribution ML ("self-learning culprit") | ⬜ TODO |
+| 7 | Capable vendor adapters (the real sub) | ⬜ TODO |
+| 8 | Short-squeeze detector | ⬜ TODO |
+| 9 | Gamma-squeeze / GEX | ⬜ TODO |
+| 10 | Scalping scanner | ⬜ TODO |
+| 11 | ThinkScript export | ⬜ TODO |
+| 12 | Hardening / scale | ⬜ TODO |
+
+---
+
+## Phase 0 — Scaffold ✅ DONE
+
+**Goal.** Stand up a working monorepo skeleton — backend + frontend both boot —
+with the immovable foundations in place: pinned toolchain, pure domain types,
+and the capability system that the entire honesty contract leans on.
+
+**Deliverables.**
+- Monorepo layout (`backend/`, `frontend/`, `data/`, `config/`, `docs/`).
+- `uv` + Python **3.12** pinned via `.python-version`; `ruff` + `mypy` +
+  `pytest` + `pre-commit`; CI.
+- `domain/` pure value types, no I/O:
+  - `bars.py` — `Timeframe`, `Bar`, `BarSet`, canonical `BAR_SCHEMA`.
+  - `capabilities.py` — `Capability` enum, `ProviderCapabilities`,
+    `CapabilityError`, convenience groupings (`INTERNALS_BREADTH`, etc.).
+  - `signals.py` — `Signal`, `Attribution`, `Cause`, `uncertain_attribution`,
+    `make_signal_id`, `MODEL_ATTRIBUTION_CAVEAT`.
+  - `internals.py`, `options.py`, `shorts.py`, `events.py` — the schemas the
+    later gated detectors will share with their providers.
+- SvelteKit scaffold + Vite `/api` + `/ws` dev proxy → `:8000` +
+  `phosphor-svelte` (`*Icon` suffix).
+- The four `docs/` files (this set).
+
+**Data dependency.** None — pure types and tooling.
+
+**Exit gate.** `uv run` boots the backend and `pnpm dev` boots the frontend;
+the (empty/minimal) test suite is green. The `domain/` types import with no I/O
+and `Capability`/`ProviderCapabilities` round-trip in a unit test.
+
+---
+
+## Phase 1 — Data + lake + internals-recorder scaffold ✅ DONE
+
+**Goal.** A vendor-agnostic data layer that degrades honestly: declare what each
+vendor can do, route to the best one, write to a local Parquet/DuckDB lake, and
+stand up the internals self-recorder *now* so banked breadth history starts
+accumulating as early as a realtime feed exists.
+
+**Deliverables.**
+- ✅ `DataProvider` ABC (`data/provider.py`) — `capabilities()` + `bars()`
+  abstract; `internals`/`options_chain`/`short_interest`/`short_volume`/
+  `borrow_rate` default to raising `CapabilityError`; `Session`, `DataError`,
+  `LookbackExceededError`, `MissingCredentialsError`, `_check_lookback`.
+- ✅ **yfinance** provider (`providers/yfinance_provider.py`) — zero-setup demo;
+  declares lookbacks (1m≈7d, 5m/15m/30m≈60d, 1h≈730d) and raises
+  `LookbackExceededError` past them; tz-aware → UTC conversion.
+- ✅ **Alpaca** provider (`providers/alpaca_provider.py`) — free IEX feed, the
+  ~7–10yr 1-minute backbone; lazy `alpaca-py` import; `MissingCredentialsError`
+  when keys absent; passes through `vwap` + `trade_count`→`trades`.
+- ✅ `CompositeProvider` (`data/composite.py`) — routes each request to the
+  highest-priority capable vendor that can reach far enough back, falls through
+  on capability/lookback/empty, unions capabilities, retains the `source` column.
+- ✅ Parquet/DuckDB lake (`storage/lake.py`, `duck.py`, `catalog.py`) — Hive
+  partitioning by `(timeframe, symbol, year, month)`, idempotent upsert on `ts`,
+  Polars read path + DuckDB SQL views, coverage stats via `Catalog`.
+- ✅ `live/internals_recorder.py` scaffold — runs against any provider; honestly
+  SKIPS every breadth internal under a price/volume vendor (no fabrication),
+  ready to bank $TICK/$TRIN/$ADD/$VOLD the moment a realtime feed is registered.
+- ✅ `intradayx ingest` CLI wired end-to-end into the lake.
+- ⬜ **Deferred refinements:** fine-grained intraday gap detection (today it's
+  coverage-based), `cache.py` read-through, and the free daily VIX/SKEW
+  (Cboe/FRED) bootstrap for the recorder.
+
+**Data dependency.** yfinance (no creds) for the demo path; **Alpaca**
+(`ALPACA_API_KEY` + `ALPACA_SECRET_KEY`) for the multi-year backbone. Free daily
+VIX/SKEW from Cboe/FRED for the internals-recorder bootstrap.
+
+**Exit gate.** `intradayx ingest SPY` lands multi-year 1-minute Parquet sourced
+from Alpaca into the lake; a DuckDB query returns those bars; the default test
+suite blocks network sockets (a stray real call fails loud), with an opt-in
+`@pytest.mark.network` smoke test hitting a tiny recent yfinance/Alpaca window.
+
+---
+
+## Phase 2 — Features + Reversal SignalEngine (FIRST scanner) ✅ DONE
+
+**Goal.** Build the reversal feature set and the single `SignalEngine` that
+turns features into ranked, attributed signals. This is the first scanner
+(reversal / tops-bottoms); scalping comes in Phase 10.
+
+**Deliverables.**
+- Polars indicators (`features/indicators.py`): VWAP + bands, **time-of-day-
+  matched** RVOL, ATR. Own the core for testability.
+- Volume profile (`features/volume_profile.py`): POC/VAH/VAL + Initial Balance
+  from OHLCV binning — documented as an *approximation* (no delta without tick
+  data).
+- **Causal** swing pivots (`features/pivots.py`): `scipy.signal.find_peaks`,
+  lookback-only — never centered/fractal (those leak the future; see
+  AI_LANDMINES).
+- Gaps (`features/gaps.py`), climax/exhaustion (`features/climax.py`).
+- Time-of-day buckets (`features/session.py`):
+  `open_drive/morning/lunch/afternoon/power_hour`.
+- Internals-context features (`features/internals_ctx.py`) — **capability-gated**
+  and dormant now.
+- `features/pipeline.py` — capability-gated `FeatureSet` builder feeding the
+  engine and (later) ML.
+- Weighted confluence/divergence scoring (TICK+TRIN+VOLD core, VIX/PCR overlay,
+  SKEW context-only).
+- Deterministic detectors (`attribution/detectors/`): `volume_surge`,
+  `climax_reversal`, `vwap_reclaim`, `gap_and_go`; `short_squeeze` /
+  `gamma_squeeze` as stubs that return `DetectedEvent.insufficient(...)`.
+- `signals/engine.py` (`SignalEngine.evaluate()`), `signals/reversal.py`,
+  `signals/params.py`.
+
+**Data dependency.** Phase 1 lake (Alpaca 1m bars). Internals features stay
+dormant until Phase 7.
+
+**Exit gate.** ✅ MET — `intradayx scan AAPL --scanner reversal` prints
+timestamped tops/bottoms each with side, confidence (scaled by
+`data_completeness`), time-of-day bucket, entry/stop, and a ranked "why"; 15
+unit/integration tests pass (indicator maths vs hand-computed values, the
+`VAH ≥ POC ≥ VAL` `hypothesis` invariant, pivot causality, and a deterministic
+signal-engine anchor proving the exact confluence maths + signal-id determinism).
+
+**As built (minor deltas from the deliverables above).**
+- Causal pivots use a Polars centered rolling-extreme + `shift(k)` (mathematically
+  equivalent, no extra dep) rather than `scipy.find_peaks`.
+- Detectors live in `attribution/detectors/price_volume.py` (volume_surge,
+  climax_top/bottom, value_area_edge, poc_proximity) + `squeezes.py` (the
+  capability-gated short/gamma stubs), rather than one file per detector.
+- v1 confluence weights climax 0.45 / volume 0.20 / value-area 0.25 / POC 0.10.
+- `internals_ctx.py` and `vwap_reclaim`/`gap_and_go` detectors are deferred (they
+  earn their keep with internals data / for the scalping scanner).
+- `attribution/engine.py` builds the ranked-cause Attribution (rule-based);
+  SHAP/ML is Phase 6.
+
+---
+
+## Phase 3 — Backtester (Nautilus) + Live monitor, in parallel ⬜ TODO (next)
+
+**Goal.** Run the **same** `SignalEngine` through a historical backtest and a
+live poller, and prove they agree. Built together because the parity guarantee
+is the whole point.
+
+**Deliverables.**
+- `backtest/nautilus_adapter.py` — thin adapter wrapping `SignalEngine` as a
+  Nautilus `Strategy` (**fill-on-next-bar**, slippage + commission). Domain/signal
+  logic stays *outside* Nautilus.
+- `backtest/runner.py` — walk-forward runner; `backtest/fills.py`,
+  `backtest/metrics.py`.
+- Metrics: win rate, expectancy, profit factor, max drawdown, Sharpe/Sortino,
+  **per-time-of-day breakdown**, **Deflated Sharpe** (discounts multiple-testing
+  overfit).
+- `live/monitor.py` — APScheduler `AsyncIOScheduler` poller → **same**
+  `SignalEngine` → WebSocket broadcast; bar dedupe by `(symbol, close_ts)`,
+  signal dedupe by deterministic `make_signal_id`.
+- `live/feed.py` — poll/stream abstraction.
+
+**Data dependency.** Phase 1 lake for backtest; live poll from yfinance/Alpaca
+for the monitor.
+
+**Exit gate.** A committed deterministic OHLCV fixture reproduces a *known*
+equity curve / trade list; a **parity test** asserts the backtest path and a
+`live/monitor.py` replay of the same fixture emit a byte-identical `Signal` set
+(guards the shared-engine rule).
+
+---
+
+## Phase 4 — Export (CSV + PDF) ⬜ TODO
+
+**Goal.** Turn the signal log and backtest results into shareable artifacts that
+carry the honesty fields all the way through.
+
+**Deliverables.**
+- `export/csv_export.py` — one row per `Signal` incl. primary cause, top-3
+  ranked causes, and `data_completeness`.
+- `export/pdf_report.py` — ReportLab PDF: signal log, equity curve + underwater
+  drawdown, per-ToD stats, attribution summary with an **"attribution limited by
+  available data"** banner. (ReportLab + matplotlib; **not** WeasyPrint.)
+- `export/charts.py` — matplotlib chart helpers for the PDF.
+
+**Data dependency.** Phase 3 backtest/live signal outputs.
+
+**Exit gate.** Golden-file CSV diff passes; PDF structural assertions confirm
+expected sections and row counts (and the data-limitation banner appears when
+completeness < 1).
+
+---
+
+## Phase 5 — API + Svelte dashboard ⬜ TODO
+
+**Goal.** Expose scan/backtest/signals over a single-instance FastAPI service
+and render them live in a CLS-safe SvelteKit dashboard.
+
+**Deliverables.**
+- FastAPI REST (`api/app.py`, `api/routes/`): `/scan`, `/backtest`, `/signals`,
+  `/providers/capabilities`, `/export`. Run with **`--workers 1`** (hard rule:
+  the APScheduler poller + WS connection manager must be single-instance).
+- WebSocket (`api/ws.py`): `status/heartbeat/signal/revoke/error` protocol with
+  `source` + `as_of` provenance baked in.
+- SvelteKit: runes WS store
+  (`frontend/src/lib/realtime/signal-store.svelte.ts`) with reconnect/backoff +
+  heartbeat watchdog; **CLS-safe** `SignalTable` (fixed row height, no skeleton
+  flash on append); `IntradayChart.svelte` (LWC v5 candles + volume pane +
+  VWAP/POC overlays + **`createSeriesMarkers`** arrows); backtest results view;
+  CSV/PDF download triggers; filters (scanner/ticker/ToD via `$derived`).
+
+**Data dependency.** Phase 3 live signals over WS; Phase 4 export endpoints.
+
+**Exit gate.** A Playwright spec asserts ~0 CLS on signal append and on first
+data load; a live signal flows end-to-end (poll → engine → WS → table render).
+
+---
+
+## Phase 6 — Attribution ML ("self-learning culprit") ⬜ TODO
+
+**Goal.** Layer a leak-free ML attribution model on top of the deterministic
+detectors — ranking which features the model keyed on, never claiming causation.
+
+**Deliverables.**
+- Labeling (`attribution/labeling.py`): **volatility-scaled triple-barrier**
+  (k×σ, not fixed %), trend-scanning labels, **meta-labeling** (primary picks
+  side, secondary predicts "is this reversal real?" + sizes).
+- **Purged + embargoed CPCV** via `skfolio` `CombinatorialPurgedCV`.
+- Models (`attribution/model.py`): LightGBM / XGBoost / CatBoost ensemble +
+  compare; calibration.
+- Explanation (`attribution/explain.py`): SHAP `TreeExplainer` in
+  **`interventional`** mode → human-readable culprit ranking. (Default
+  `tree_path_dependent` mis-credits correlated features — see AI_LANDMINES.)
+- `tsfresh` feature discovery (the "self-learning" feature mill); `arch` GARCH
+  vol regime + `ruptures`/`hmmlearn` change-point/regime tags.
+- `attribution/registry.py`, `attribution/engine.py`.
+- **Honesty enforced:** exploratory under free data; `data_completeness` +
+  the **"cause uncertain — not explained by available internals"** state are
+  mandatory outputs.
+
+**Data dependency.** Phase 1–2 lake + features; richer once Phases 7–9 add
+internals/options/short truth. PyTorch sequence models are deferred to Phase 12.
+
+**Exit gate.** CPCV produces an out-of-sample distribution + Deflated Sharpe; a
+leakage test asserts zero train/test timestamp overlap within the label horizon
+and that scalers were fit on the train fold only.
+
+---
+
+## Phase 7 — Capable vendor adapters (the real sub) ⬜ TODO
+
+**Goal.** Plug in paid/credentialed vendors so the internals- and options-gated
+features that have been dormant since Phase 2 **auto-activate** with zero rewrites.
+
+**Deliverables.**
+- Providers: Polygon/Massive (indices incl. VIX + options), Schwab-TOS (realtime
+  internals feed for the recorder), Databento — each declaring the relevant
+  `INTERNALS_*` / `OPTIONS_*` capabilities.
+- Internals-divergence features + internals-gated reversal confirmations light
+  up automatically once a provider declares the capability.
+- Wire `live/internals_recorder.py` to the live realtime feed so breadth history
+  banks continuously.
+
+**Data dependency.** Polygon/Massive (~$79+/mo), Schwab-TOS (free w/ account,
+OAuth2), Databento (pay-as-you-go). Note: deep pre-2023 intraday index history
+needs paid Cboe DataShop; breadth internals still rely on the self-recorded series.
+
+**Exit gate.** With a capable provider registered, `/providers/capabilities`
+shows the new `INTERNALS_*`/`OPTIONS_*` flags and a re-scan emits signals whose
+`data_completeness` rose and whose attributions now include internals causes —
+without touching feature/detector code.
+
+---
+
+## Phase 8 — Short-squeeze detector ⬜ TODO
+
+**Goal.** Activate the `short_squeeze` detector using short-interest, short-
+volume, and borrow data — flagging stale data rather than guessing.
+
+**Deliverables.**
+- Providers: FINRA short interest (free, biweekly, ~2-week lag — flagged stale)
+  + daily short-volume; Ortex/S3 (paid: fresh SI + cost-to-borrow + utilization);
+  IBKR borrow rate/availability.
+- `attribution/detectors/short_squeeze.py` activated via the `SHORT_*`
+  capabilities (days-to-cover + borrow-spike + price/volume signature).
+
+**Data dependency.** FINRA (free), Ortex/S3 (paid), IBKR TWS (funded account).
+The `ShortInterest.published_date` vs `settlement_date` split lets the detector
+flag staleness (treating a stale figure as live would also be a leakage bug).
+
+**Exit gate.** A constructed squeeze fixture triggers the detector with a
+non-stale feed and returns `insufficient` (never a guess) when SI is stale or
+missing; the emitted signal's attribution names `SHORT_SQUEEZE` with evidence.
+
+---
+
+## Phase 9 — Gamma-squeeze / GEX ⬜ TODO
+
+**Goal.** Activate the `gamma_squeeze` detector from real options chains — and
+**never** display a GEX number without one.
+
+**Deliverables.**
+- Options providers: ORATS preferred (1-minute greeks/IV since Aug 2020) or
+  Polygon/Databento OPRA + our own greeks.
+- Per-strike `GEX = γ · 100 · OI · spot² · 0.01`, gamma-flip level, strike
+  pinning, 0DTE/charm/vanna EOD flows.
+- `attribution/detectors/gamma_squeeze.py` activated via `OPTIONS_*`
+  capabilities.
+
+**Data dependency.** ORATS (best gamma path), or Polygon/Databento OPRA.
+
+**Exit gate.** With a chain present, a GEX number + gamma-flip level render; with
+no chain, the detector returns "insufficient data" and the UI shows that state —
+never a fabricated GEX.
+
+---
+
+## Phase 10 — Scalping scanner ⬜ TODO
+
+**Goal.** Add the second scanner on the *same* `SignalEngine` interface, reusing
+all of backtest/live/export/dashboard.
+
+**Deliverables.**
+- `signals/scalping.py` — a second `Strategy` (momentum / VWAP-reclaim / RVOL /
+  $TICK-extreme) implementing the same engine interface.
+- `SignalKind.SCALP_LONG` / `SCALP_SHORT` already reserved in the domain.
+
+**Data dependency.** Phase 1 lake + (ideally) Phase 7 realtime internals for
+$TICK extremes.
+
+**Exit gate.** `intradayx scan SPY --scanner scalping` runs through the same
+backtest + live + export + dashboard paths; a parity test (as in Phase 3) passes
+for the scalping strategy.
+
+---
+
+## Phase 11 — ThinkScript export ⬜ TODO
+
+**Goal.** Translate the finalized reversal rules into a thinkorSwim `study`,
+kept in sync with the Python rules.
+
+**Deliverables.**
+- Reversal rules → ToS `study` (VWAP / volume / `VolumeProfile` /
+  `close("$TICK")`).
+- Copy-to-clipboard panel in the dashboard, generated from the same rule
+  definitions used by `SignalEngine`.
+
+**Data dependency.** None new — derived from finalized Phase 2 rules.
+
+**Exit gate.** The generated ThinkScript pastes into thinkorSwim and plots; a
+test asserts the generated script stays in sync with the Python rule params
+(diff fails if rules drift).
+
+---
+
+## Phase 12 — Hardening / scale ⬜ TODO
+
+**Goal.** Productionize: storage for high-rate live ticks, model monitoring,
+multi-symbol dashboards, optional deep-learning models, and deployment.
+
+**Deliverables.**
+- Optional TimescaleDB for high-rate live ticks.
+- Model monitoring + retraining cadence.
+- Multi-symbol live dashboard.
+- PyTorch LSTM/Transformer sequence models *if* data depth supports it (deferred
+  from Phase 6 to avoid overfitting thin early data).
+- Deploy: SvelteKit → Vercel; FastAPI + scheduler → Railway (**`--workers 1`**);
+  WS direct to Railway.
+
+**Data dependency.** All prior phases; deep-learning needs the banked
+self-recorded internals depth to be meaningful.
+
+**Exit gate.** Deployed stack serves a live multi-symbol dashboard; model
+monitoring reports drift; a retrain run completes and the parity test still
+passes against the production engine.
+
+---
+
+## First implementation milestone
+
+**Phases 0 → 2 as the first vertical slice:** scaffold (done) → vendor-agnostic
+data layer writing into the Parquet/DuckDB lake → reversal feature set +
+`SignalEngine` → a runnable `intradayx scan <TICKER> --scanner reversal` that
+prints timestamped signals with a ranked "why" + `data_completeness`. Phase 3
+(Nautilus backtest + live poller + parity test) follows immediately, since they
+are explicitly built in parallel on the shared engine.
