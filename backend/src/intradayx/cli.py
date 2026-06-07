@@ -152,6 +152,10 @@ def backtest(
     res = run_backtest(bars, provider.capabilities(), max_hold_bars=max_hold)
     m = res.metrics
     pf = "∞" if m.profit_factor == float("inf") else f"{m.profit_factor:.2f}"
+    from intradayx.attribution.validation import deflated_sharpe_ratio
+
+    returns = [t.pnl_cents / 1_000_000 for t in res.trades]  # /$10k notional
+    psr = deflated_sharpe_ratio(returns, 1) if len(returns) >= 3 else 0.0
     console.print(
         f"\n[bold]{ticker.upper()}[/] {tf.value} backtest — {len(bars)} bars, "
         f"{res.n_signals} signals, [bold cyan]{m.n_trades}[/] trades"
@@ -164,6 +168,7 @@ def backtest(
     summary.add_row("Profit factor", pf)
     summary.add_row("Max drawdown", _usd(m.max_drawdown_cents))
     summary.add_row("Sharpe (per-trade, unannualized)", f"{m.sharpe_per_trade:.2f}")
+    summary.add_row("P(Sharpe > 0) [trials=1]", f"{psr:.0%}")
     console.print(summary)
 
     if m.per_tod:
@@ -194,6 +199,49 @@ def backtest(
         "modeled, but validate with walk-forward + Deflated Sharpe (Phase 6) before "
         "trusting this.[/]"
     )
+
+
+@app.command()
+def learn(
+    ticker: str,
+    timeframe: str = typer.Option("5m", help="Bar interval"),
+    days: int = typer.Option(60, help="How many days back to learn from"),
+) -> None:
+    """Train the exploratory 'culprit' model and show its SHAP feature attribution."""
+    from intradayx.attribution.learn import train_and_evaluate
+    from intradayx.domain.signals import MODEL_ATTRIBUTION_CAVEAT
+    from intradayx.features.pipeline import build_features
+
+    tf = Timeframe(timeframe)
+    end = datetime.now(tz=UTC)
+    provider = default_provider()
+    bars = provider.bars(ticker.upper(), end - timedelta(days=days), end, tf)
+    if bars.is_empty():
+        console.print(f"[yellow]No bars for {ticker.upper()} — nothing to learn.[/]")
+        raise typer.Exit(code=0)
+
+    res = train_and_evaluate(build_features(bars, provider.capabilities()))
+    if res.insufficient:
+        console.print(f"[yellow]Insufficient data to learn: {res.reason}[/]")
+        raise typer.Exit(code=0)
+
+    console.print(
+        f"\n[bold]{ticker.upper()}[/] {tf.value} — learned from "
+        f"[bold cyan]{res.n_samples}[/] labelled bars "
+        f"({res.positive_rate:.0%} significant-move rate)"
+    )
+    info = Table(show_header=False, box=None)
+    info.add_row("Purged-CV macro-F1", f"{res.cv_macro_f1:.3f} ({res.cv_folds} folds)")
+    info.add_row("Data completeness", f"{res.data_completeness:.0%}")
+    console.print(info)
+
+    shap_table = Table(title="What the model keys on (mean |SHAP|, interventional)")
+    shap_table.add_column("Feature")
+    shap_table.add_column("Importance", justify="right")
+    for feature, val in res.shap_top:
+        shap_table.add_row(feature, f"{val:.4f}")
+    console.print(shap_table)
+    console.print(f"[dim]{MODEL_ATTRIBUTION_CAVEAT}[/]")
 
 
 if __name__ == "__main__":

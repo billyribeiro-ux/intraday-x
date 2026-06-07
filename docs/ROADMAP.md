@@ -25,7 +25,7 @@ actually works.
 | 3 | Backtester + Live monitor, in parallel | ✅ DONE (custom engine; Nautilus deferred to go-live) |
 | 4 | Export (CSV + PDF) | ✅ DONE |
 | 5 | API + Svelte dashboard (live-wired) | ✅ DONE |
-| 6 | Attribution ML ("self-learning culprit") | ⬜ TODO |
+| 6 | Attribution ML ("self-learning culprit") | ✅ DONE (core) |
 | 7 | Capable vendor adapters (the real sub) | ⬜ TODO |
 | 8 | Short-squeeze detector | ⬜ TODO |
 | 9 | Gamma-squeeze / GEX | ⬜ TODO |
@@ -260,34 +260,38 @@ Vite dev proxy round-trip (`:5173/api/* → :8000`) returns live data; frontend
 
 ---
 
-## Phase 6 — Attribution ML ("self-learning culprit") ⬜ TODO
+## Phase 6 — Attribution ML ("self-learning culprit") ✅ DONE (core)
 
 **Goal.** Layer a leak-free ML attribution model on top of the deterministic
 detectors — ranking which features the model keyed on, never claiming causation.
 
 **Deliverables.**
-- Labeling (`attribution/labeling.py`): **volatility-scaled triple-barrier**
-  (k×σ, not fixed %), trend-scanning labels, **meta-labeling** (primary picks
-  side, secondary predicts "is this reversal real?" + sizes).
-- **Purged + embargoed CPCV** via `skfolio` `CombinatorialPurgedCV`.
-- Models (`attribution/model.py`): LightGBM / XGBoost / CatBoost ensemble +
-  compare; calibration.
-- Explanation (`attribution/explain.py`): SHAP `TreeExplainer` in
-  **`interventional`** mode → human-readable culprit ranking. (Default
-  `tree_path_dependent` mis-credits correlated features — see AI_LANDMINES.)
-- `tsfresh` feature discovery (the "self-learning" feature mill); `arch` GARCH
-  vol regime + `ruptures`/`hmmlearn` change-point/regime tags.
-- `attribution/registry.py`, `attribution/engine.py`.
-- **Honesty enforced:** exploratory under free data; `data_completeness` +
-  the **"cause uncertain — not explained by available internals"** state are
-  mandatory outputs.
+- ✅ Labeling (`attribution/labeling.py`): **volatility-scaled triple-barrier**
+  (k×σ EWMA vol, not fixed %); tail bars left unlabelled (no truncated-horizon
+  bias).
+- ✅ Leak-free validation (`attribution/validation.py`): **purged + embargoed
+  K-fold**, Probabilistic Sharpe Ratio, and the **Deflated Sharpe Ratio**
+  (discounts multiple-testing overfit; wired into `intradayx backtest` as
+  `P(Sharpe>0)`).
+- ✅ Model + explanation (`attribution/learn.py`): **LightGBM** classifier
+  ("significant move imminent") evaluated under purged CV; **SHAP `TreeExplainer`
+  in `interventional` mode** → ranked feature attribution. `intradayx learn`.
+- ✅ **Honesty enforced:** `MODEL_ATTRIBUTION_CAVEAT` printed; the real AAPL run
+  showed **CV macro-F1 ≈ 0.51** (barely above chance) — the truth on free data.
+- ⬜ **Deferred:** XGBoost/CatBoost ensemble compare, `tsfresh` auto-features,
+  `arch`/`ruptures`/`hmmlearn` regime tags, meta-labeling on signals, model
+  calibration, walk-forward retraining (the libs are installed; these are
+  refinements that mainly pay off with Phase 7–9 data). PyTorch → Phase 12.
+- *Note (macOS):* the `ml` extra's LightGBM/XGBoost need `brew install libomp`.
 
-**Data dependency.** Phase 1–2 lake + features; richer once Phases 7–9 add
-internals/options/short truth. PyTorch sequence models are deferred to Phase 12.
+**Data dependency.** Phase 1–2 lake + features; far richer once Phases 7–9 add
+internals/options/short truth.
 
-**Exit gate.** CPCV produces an out-of-sample distribution + Deflated Sharpe; a
-leakage test asserts zero train/test timestamp overlap within the label horizon
-and that scalers were fit on the train fold only.
+**Exit gate.** ✅ MET — purged CV produces out-of-sample F1; `deflated_sharpe_ratio`
++ leakage test (`test_validation.py` asserts zero train/test overlap within the
+label horizon) pass; `intradayx learn AAPL` trains LightGBM on 2,726 real bars
+and prints SHAP attribution (top: minutes_from_open, gaps, dist-to-POC) with the
+correlation≠causation caveat.
 
 ---
 

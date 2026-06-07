@@ -21,7 +21,7 @@ uv run pytest
 | `backtest`   | 3     | `nautilus_trader` — backtest↔live parity engine         |
 | `export`     | 4     | `reportlab` + `matplotlib` — CSV/PDF reports            |
 | `api`        | 5     | `fastapi` + `uvicorn` + `apscheduler` — API & live WS   |
-| `ml`         | 6     | LightGBM/XGBoost/CatBoost/SHAP/tsfresh/arch/skfolio …   |
+| `ml`         | 6     | LightGBM/XGBoost/CatBoost/SHAP/tsfresh/arch/skfolio … (macOS: `brew install libomp`) |
 
 The base install stays lean so iteration is fast; heavier/native stacks load
 only when their phase needs them.
