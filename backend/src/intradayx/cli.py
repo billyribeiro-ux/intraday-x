@@ -244,5 +244,24 @@ def learn(
     console.print(f"[dim]{MODEL_ATTRIBUTION_CAVEAT}[/]")
 
 
+@app.command()
+def thinkscript(
+    out: str = typer.Option("", "--out", help="Write the study to this file instead of stdout"),
+) -> None:
+    """Print (or write) the thinkorSwim ThinkScript study for the reversal scanner."""
+    from intradayx.export.thinkscript import reversal_thinkscript
+    from intradayx.signals.params import ReversalParams
+
+    source = reversal_thinkscript(ReversalParams())
+    if out:
+        from pathlib import Path
+
+        Path(out).write_text(source)
+        console.print(f"Wrote ThinkScript study → {out}")
+    else:
+        # Plain print (not rich) so it copy-pastes cleanly into thinkorSwim.
+        print(source)
+
+
 if __name__ == "__main__":
     app()

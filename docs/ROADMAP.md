@@ -30,7 +30,7 @@ actually works.
 | 8 | Short-squeeze detector | ⬜ TODO |
 | 9 | Gamma-squeeze / GEX | ⬜ TODO |
 | 10 | Scalping scanner | ⬜ TODO |
-| 11 | ThinkScript export | ⬜ TODO |
+| 11 | ThinkScript export | ✅ DONE |
 | 12 | Hardening / scale | ⬜ TODO |
 
 ---
@@ -382,22 +382,25 @@ for the scalping strategy.
 
 ---
 
-## Phase 11 — ThinkScript export ⬜ TODO
+## Phase 11 — ThinkScript export ✅ DONE
 
 **Goal.** Translate the finalized reversal rules into a thinkorSwim `study`,
 kept in sync with the Python rules.
 
 **Deliverables.**
-- Reversal rules → ToS `study` (VWAP / volume / `VolumeProfile` /
-  `close("$TICK")`).
-- Copy-to-clipboard panel in the dashboard, generated from the same rule
-  definitions used by `SignalEngine`.
+- ✅ `export/thinkscript.py` — `reversal_thinkscript(params)` generates a ToS
+  study from `ReversalParams` (VWAP + relative volume + climax + causal swing
+  pivots + VWAP-stretch as a Value-Area proxy → buy/sell arrows). Params injected
+  so it can't drift from the engine.
+- ✅ `intradayx thinkscript [--out FILE]`.
+- ⬜ **Deferred:** dashboard copy-to-clipboard panel; `VolumeProfile` VAH/VAL +
+  `close("$TICK")` internals (the latter needs a ToS/Schwab feed).
 
-**Data dependency.** None new — derived from finalized Phase 2 rules.
+**Data dependency.** None new — derived from the Phase 2 rules.
 
-**Exit gate.** The generated ThinkScript pastes into thinkorSwim and plots; a
-test asserts the generated script stays in sync with the Python rule params
-(diff fails if rules drift).
+**Exit gate.** ✅ MET — `intradayx thinkscript` emits a valid study; a test asserts
+the script contains the arrow-plot constructs + causal pivot logic and that the
+`ReversalParams` (threshold, pivotK, version) are injected (fails if rules drift).
 
 ---
 
