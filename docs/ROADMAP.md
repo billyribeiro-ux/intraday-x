@@ -31,7 +31,7 @@ actually works.
 | 9 | Gamma-squeeze / GEX | 🔒 BLOCKED — needs options-chain data (paid); detector stub in place |
 | 10 | Scalping scanner | ✅ DONE |
 | 11 | ThinkScript export | ✅ DONE |
-| 12 | Hardening / scale | 🟡 CI + walk-forward + backend Dockerfile done; deploy needs your Vercel/Railway accounts; TimescaleDB later |
+| 12 | Hardening / scale | 🟡 CI + walk-forward + Dockerfile + retry/backoff + read-through cache + Prometheus `/metrics` done; deploy needs your accounts; TimescaleDB later |
 
 **Current state:** everything achievable on free data is done (Phases 0–6, 10,
 11 + earnings catalyst). Both scanners (reversal + scalping) run through one

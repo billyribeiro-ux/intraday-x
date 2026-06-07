@@ -11,9 +11,10 @@ import contextlib
 from collections.abc import AsyncIterator
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
+from intradayx.api import metrics
 from intradayx.api.routes import analysis, market
 from intradayx.api.ws import ConnectionManager, SignalPoller, status_message
 from intradayx.config import get_settings
@@ -58,6 +59,12 @@ app.include_router(analysis.router)
 @app.get("/healthz", tags=["health"])
 def healthz() -> dict[str, object]:
     return {"status": "ok", "ws_clients": manager.count}
+
+
+@app.get("/metrics", tags=["observability"])
+def metrics_endpoint() -> Response:
+    body, content_type = metrics.render()
+    return Response(content=body, media_type=content_type)
 
 
 @app.websocket("/ws/signals")

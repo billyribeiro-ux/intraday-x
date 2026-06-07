@@ -16,6 +16,7 @@ from zoneinfo import ZoneInfo
 
 from fastapi import WebSocket
 
+from intradayx.api import metrics
 from intradayx.api.schemas import to_signal_dto
 from intradayx.api.service import get_engine, get_provider
 from intradayx.domain.bars import Timeframe
@@ -107,19 +108,31 @@ class SignalPoller:
     async def poll(self) -> None:
         if self.manager.count == 0:
             return  # nobody listening; skip the vendor call
-        for symbol in self.symbols:
-            try:
-                fresh = await asyncio.to_thread(self._fetch_and_process, symbol)
-            except Exception as exc:  # vendor hiccup; report, keep polling
-                await self.manager.broadcast(
-                    _envelope("error", {"code": "poll_failed", "detail": str(exc)[:200]})
-                )
-                continue
-            for sig in fresh:
-                await self.manager.broadcast(_envelope("signal", to_signal_dto(sig).model_dump()))
-        await self.manager.broadcast(
-            _envelope("heartbeat", {"next_poll_in_s": self.interval_s})
-        )
+        metrics.WS_CLIENTS.set(self.manager.count)
+        started = time.perf_counter()
+        try:
+            for symbol in self.symbols:
+                try:
+                    fresh = await asyncio.to_thread(self._fetch_and_process, symbol)
+                except Exception as exc:  # vendor hiccup; report, keep polling
+                    metrics.VENDOR_ERRORS.labels(code="poll_failed").inc()
+                    await self.manager.broadcast(
+                        _envelope("error", {"code": "poll_failed", "detail": str(exc)[:200]})
+                    )
+                    continue
+                for sig in fresh:
+                    scanner = "scalping" if sig.kind.value.startswith("scalp") else "reversal"
+                    metrics.SIGNALS_EMITTED.labels(
+                        scanner=scanner, side=sig.side.ui_direction
+                    ).inc()
+                    await self.manager.broadcast(
+                        _envelope("signal", to_signal_dto(sig).model_dump())
+                    )
+            await self.manager.broadcast(
+                _envelope("heartbeat", {"next_poll_in_s": self.interval_s})
+            )
+        finally:
+            metrics.POLL_SECONDS.observe(time.perf_counter() - started)
 
 
 def status_message(poller: SignalPoller) -> dict[str, object]:

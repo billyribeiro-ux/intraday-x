@@ -35,7 +35,13 @@ backtest = ["nautilus_trader>=1.200"]
 # Phase 4 — CSV/PDF export
 export = ["reportlab>=4.2", "matplotlib>=3.9"]
 # Phase 5 — API + live websocket + scheduler
-api = ["fastapi>=0.111", "uvicorn[standard]>=0.30", "websockets>=12", "apscheduler>=3.10"]
+api = [
+    "fastapi>=0.111",
+    "uvicorn[standard]>=0.30",
+    "websockets>=12",
+    "apscheduler>=3.10",
+    "prometheus-client>=0.20",
+]
 # Phase 6 — the "self-learning culprit" ML stack (full arsenal)
 ml = [
     "scikit-learn>=1.5",
