@@ -29,7 +29,7 @@ git checkout feat/phase-0-2-foundation      # until PR #1 is merged to main
 
 ```bash
 cd backend
-uv sync --extra alpaca --extra export --extra api --extra ml
+uv sync --extra export --extra api --extra ml      # Twelve Data/Polygon need no extra (httpx)
 uv run pytest                                # sanity: should be all green
 ```
 
@@ -76,29 +76,36 @@ arrows, the live signal table, and the data-completeness caveat.
 
 ---
 
-## 2. Get the free Alpaca key → multi-year backtests (do this first)
+## 2. Get the free Twelve Data key → multi-year backtests (do this first)
 
-yfinance only gives ~7 days of 1-minute / ~60 days of 5-minute data. Alpaca's
-**free** tier gives ~7–10 **years** of 1-minute bars — the single biggest quality
-jump available at $0.
+yfinance only gives ~7 days of 1-minute / ~60 days of 5-minute data. **Twelve
+Data** is a FREE, **non-broker** vendor whose free tier (API key, **no credit
+card**) has **1-minute bars back to 2020** + multi-year 5-minute — the biggest
+quality jump available at $0. (Researched & verified Jun 2026; it had the least-
+bad free limits of the non-broker sources.)
 
-1. Sign up (free, no funding needed): https://alpaca.markets/
-2. Open the dashboard → **API Keys**: https://app.alpaca.markets/
-3. Generate keys, then create `.env` from the template and paste them:
+1. Sign up free (no card): https://twelvedata.com/  → copy the API key from the dashboard.
+2. Create `.env` from the template and paste it:
    ```bash
    cp .env.example .env        # at the repo root
-   # edit .env: ALPACA_API_KEY=... and ALPACA_SECRET_KEY=...
+   # edit .env: TWELVEDATA_API_KEY=...
    ```
-4. Export them for the shell (or use a tool like `direnv`):
+3. Export it (or use `direnv`):
    ```bash
    export $(grep -v '^#' .env | xargs)     # quick-and-dirty load
    ```
-5. Run a real multi-year backtest — the composite router auto-prefers Alpaca for
-   deep history:
+4. Run a real multi-year backtest — the composite router auto-prefers Twelve Data
+   over yfinance once the key is set:
    ```bash
    cd backend
-   uv run intradayx backtest AAPL --timeframe 1m --days 1825 --scanner reversal   # 5 years
+   uv run intradayx backtest AAPL --timeframe 5m --days 1095 --scanner reversal   # ~3 years
    ```
+
+Free-tier limits: ~800 requests/day, 8/min, 5000 bars/request (the layer
+paginates by date). Turn on the read-through cache to stay under quota:
+`export INTRADAYX_CACHE_ENABLED=true`. **No brokers involved.** (yfinance remains
+the zero-setup fallback; Polygon — a pure data vendor, not a broker — is also
+wired if you ever want it: set `POLYGON_API_KEY`.)
 
 Notes: the free feed is **IEX** (a slice of volume, fine for building/validating;
 thinner than full SIP). Keys are secret — `.env` is gitignored; never commit them.
@@ -126,7 +133,7 @@ The v1 scanners are unoptimized and lose on free data. Before believing any edge
 
 > **Already wired for you: Polygon.io.** Full-market intraday bars need ZERO code
 > — sign up at https://polygon.io/ (free tier exists), put `POLYGON_API_KEY` in
-> `.env`, and the composite router auto-prefers it over Alpaca/yfinance. That
+> `.env`, and the composite router auto-prefers it over yfinance. That
 > alone replaces the thin IEX feed. (Polygon's internals/options *endpoints*
 > aren't wired yet — that's the "add a vendor" work below.)
 
@@ -216,7 +223,7 @@ The stack is two services. Recommended split:
   - **Must run `--workers 1`** — the APScheduler poller + websocket connection
     manager are single-instance (multiple workers double-poll the vendor and split
     the socket). Start command: `uv run intradayx serve --host 0.0.0.0 --port $PORT`.
-  - Set `ALPACA_API_KEY` / `ALPACA_SECRET_KEY` (+ any vendor keys) in the host's
+  - Set `TWELVEDATA_API_KEY` / `POLYGON_API_KEY` (+ any vendor keys) in the host's
     env, **not** in the repo.
   - Vercel is serverless and can't hold the websocket/poller — that's why the
     backend lives on Railway and the browser connects straight to it.
@@ -252,7 +259,7 @@ docs/            # ROADMAP, ARCHITECTURE, DATA_PROVIDERS, AI_LANDMINES, this gui
 ## 11. Safety & legal
 
 - **yfinance is "personal use only"** (unofficial scrape) — fine for dev, not for
-  a sold product. Use a licensed vendor (Alpaca paid / Polygon / Databento) before
+  a sold product. Use a licensed vendor (Twelve Data / Polygon / Databento) before
   productizing.
 - **Secrets:** keys live in `.env` (gitignored) or the host's env — never in code.
 - **Not investment advice.** Every signal carries a confidence + caveat for a

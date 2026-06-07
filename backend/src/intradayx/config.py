@@ -28,7 +28,11 @@ class Settings(BaseSettings):
 
     # Data-vendor priority order (lower index = preferred). Unknown names and
     # vendors whose credentials are absent are skipped; yfinance is the floor.
-    providers: list[str] = ["polygon", "alpaca", "yfinance"]
+    # Default is free, NON-BROKER sources only: Twelve Data (free key, multi-year
+    # 1m since 2020) preferred for depth, yfinance (no key) as the zero-setup floor.
+    # Polygon (pure data vendor) is preferred if its key is set. Alpaca is a broker
+    # — still registered, but opt-in only via INTRADAYX_PROVIDERS.
+    providers: list[str] = ["polygon", "twelvedata", "yfinance"]
 
     # Live monitor.
     watched_symbols: list[str] = ["AAPL", "SPY"]
@@ -36,6 +40,7 @@ class Settings(BaseSettings):
 
     # Storage + logging.
     data_dir: Path = Path("data/lake")
+    cache_enabled: bool = False  # read-through lake cache (serve cached, fetch gaps)
     log_level: str = "INFO"
 
 

@@ -15,7 +15,7 @@ generates a thinkorSwim ThinkScript study.
 ## What's inside
 
 ```
-ticker ─▶ DataProvider (yfinance + Alpaca + …, capability-gated)
+ticker ─▶ DataProvider (yfinance + Twelve Data + Polygon + …, capability-gated)
         ─▶ Parquet/DuckDB lake
         ─▶ causal features (VWAP, RVOL, ATR, POC/VAH/VAL, pivots, climax, squeeze)
         ─▶ SignalEngine  ◀── shared ──▶  Backtester  &  Live monitor
@@ -38,7 +38,7 @@ ticker ─▶ DataProvider (yfinance + Alpaca + …, capability-gated)
 
 ```bash
 cd backend
-uv sync --extra alpaca --extra export --extra api --extra ml
+uv sync --extra export --extra api --extra ml      # Twelve Data/Polygon need no extra (httpx)
 
 uv run intradayx scan AAPL --scanner reversal      # tops/bottoms with ranked "why"
 uv run intradayx scan AAPL --scanner scalping       # momentum/VWAP-reclaim entries
@@ -62,8 +62,10 @@ pnpm dev            # http://localhost:5173 (proxies /api + /ws to :8000)
 ## Data
 
 Works out of the box on **yfinance** (zero setup; ~7 days of 1-minute, ~60 days
-of 5-minute). For real multi-year backtests, add a free **Alpaca** key (see
-[`.env.example`](.env.example)) and the composite router prefers it automatically.
+of 5-minute). For real multi-year backtests, add a free, **non-broker**
+**Twelve Data** key (1-minute back to 2020; see [`.env.example`](.env.example)) —
+the composite router prefers it automatically. Polygon (data vendor) is also
+wired. (Alpaca is a broker — registered but opt-in only.)
 Deep historical intraday market internals ($TICK/$TRIN/…) aren't sold cheaply —
 the internals self-recorder banks them once you connect a realtime feed. See
 [`docs/DATA_PROVIDERS.md`](docs/DATA_PROVIDERS.md).

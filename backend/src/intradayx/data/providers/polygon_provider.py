@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import os
 from datetime import UTC, datetime, timedelta
+from functools import partial
 from typing import Any
 
 import httpx
@@ -29,6 +30,7 @@ from intradayx.data.provider import (
     MissingCredentialsError,
     Session,
 )
+from intradayx.data.resilience import TransientError, with_retries
 from intradayx.domain.bars import BAR_SCHEMA, BarSet, Timeframe
 from intradayx.domain.capabilities import Capability, ProviderCapabilities
 
@@ -94,15 +96,24 @@ class PolygonProvider(DataProvider):
         )
         rows: list[dict[str, Any]] = []
         timeout = httpx.Timeout(30.0, connect=5.0)  # never hang on a dead handshake
+        retryable = (TransientError, httpx.TransportError, httpx.TimeoutException)
         with httpx.Client(timeout=timeout) as client:
+
+            def _fetch(u: str) -> dict[str, Any]:
+                r = client.get(u)
+                if r.status_code == 429 or r.status_code >= 500:
+                    raise TransientError(f"polygon {r.status_code} (transient)")
+                if r.status_code != 200:
+                    raise DataError(f"polygon {r.status_code} for {ticker}: {r.text[:200]}")
+                parsed: dict[str, Any] = r.json()
+                return parsed
+
             for _ in range(50):  # bounded pagination
                 if url is None:
                     break
                 sep = "&" if "?" in url else "?"
-                resp = client.get(f"{url}{sep}apiKey={self._api_key}")
-                if resp.status_code != 200:
-                    raise DataError(f"polygon {resp.status_code} for {ticker}: {resp.text[:200]}")
-                body = resp.json()
+                full = f"{url}{sep}apiKey={self._api_key}"
+                body = with_retries(partial(_fetch, full), retryable=retryable)
                 rows.extend(body.get("results") or [])
                 url = body.get("next_url")
 

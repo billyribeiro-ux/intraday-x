@@ -15,6 +15,7 @@ from intradayx.config import Settings
 from intradayx.data.provider import CapabilityError, DataProvider
 from intradayx.data.providers.alpaca_provider import AlpacaProvider
 from intradayx.data.providers.polygon_provider import PolygonProvider
+from intradayx.data.providers.twelvedata_provider import TwelveDataProvider
 from intradayx.data.providers.yfinance_provider import YFinanceProvider
 from intradayx.data.registry import build_provider, registered_names
 from intradayx.domain.bars import Timeframe
@@ -25,6 +26,7 @@ PROVIDER_CLASSES: list[type[DataProvider]] = [
     YFinanceProvider,
     AlpacaProvider,
     PolygonProvider,
+    TwelveDataProvider,
 ]
 
 
@@ -68,7 +70,7 @@ def test_unsupported_surfaces_raise_not_empty(cls: type[DataProvider]) -> None:
 
 def test_builtin_providers_registered() -> None:
     names = registered_names()
-    assert {"yfinance", "alpaca", "polygon"} <= set(names)
+    assert {"yfinance", "twelvedata", "polygon", "alpaca"} <= set(names)
 
 
 def test_build_provider_from_config() -> None:

@@ -22,7 +22,7 @@ intraday-x/
       attribution/   detectors/{volume_surge,climax_reversal,vwap_reclaim,gap_and_go,short_squeeze*,gamma_squeeze*}
                      registry.py labeling.py model.py explain.py engine.py
       signals/       engine.py reversal.py scalping.py(later) params.py        # SINGLE SOURCE OF TRUTH
-      backtest/      runner.py nautilus_adapter.py metrics.py fills.py
+      backtest/      runner.py walkforward.py metrics.py fills.py
       live/          monitor.py feed.py internals_recorder.py
       export/        csv_export.py pdf_report.py charts.py
       api/           app.py routes/ ws.py schemas.py
@@ -59,14 +59,15 @@ logic, bar for bar.
                                    │ identical Signal objects
               ┌────────────────────┴────────────────────┐
               ▼                                          ▼
-   backtest/nautilus_adapter.py                    live/monitor.py
-   (Strategy wrapper, fill-on-next-bar)            (APScheduler poller → WS)
+   backtest/runner.py                              live/monitor.py
+   (event-driven sim, fill-on-next-bar)            (APScheduler poller → WS)
 ```
 
-- The engine lives **outside** `nautilus_trader`. `backtest/nautilus_adapter.py`
-  is a thin shim that wraps the engine as a Nautilus `Strategy`; `live/monitor.py`
-  drives the same engine from an APScheduler `AsyncIOScheduler`. Neither owns
-  signal logic.
+- The engine lives **outside** the execution runtime. `backtest/runner.py` is a
+  custom event-driven backtester that drives the engine; `live/monitor.py` drives
+  the same engine from an APScheduler `AsyncIOScheduler`. Neither owns signal
+  logic. (`nautilus_trader` is deferred to the go-live phase as a thin adapter
+  for real broker execution — see ADR 0002.)
 - Identity is deterministic: `make_signal_id(symbol, ts, kind, params_version)`
   (`domain/signals.py`) hashes those four fields, so a re-poll of the same window
   never re-fires and backtest vs live agree on signal identity.
@@ -166,7 +167,7 @@ FeatureSet   (features/pipeline.py — VWAP/POC/VAH/VAL, RVOL, causal pivots,
 Attribution engine   (attribution/ — rule detectors + LightGBM/SHAP →
                       ranked "culprit", or "cause uncertain")
   ▼
-SignalEngine.evaluate()   ◀── SHARED ──▶   Backtester (Nautilus)  &  Live poller
+SignalEngine.evaluate()   ◀── SHARED ──▶   Backtester (custom)  &  Live poller
   ▼
 Signal { confidence, attribution, data_completeness }
   ▼
@@ -256,7 +257,7 @@ All under `backend/src/intradayx/domain/`. Pure values, no I/O.
 | `backend/src/intradayx/data/composite.py` | The router that makes "add a vendor later" free. |
 | `backend/src/intradayx/signals/engine.py` | The single `SignalEngine.evaluate()` shared by backtest + live. |
 | `backend/src/intradayx/domain/signals.py` | `Signal` + `Attribution` (with `data_completeness`), used everywhere. |
-| `backend/src/intradayx/backtest/nautilus_adapter.py` | The parity bridge (engine → Nautilus Strategy). |
+| `backend/src/intradayx/backtest/runner.py` | Custom event-driven backtester driving the shared engine (parity with live). |
 | `backend/src/intradayx/features/pipeline.py` | Capability-gated `FeatureSet` builder feeding engine + ML. |
 | `backend/src/intradayx/live/internals_recorder.py` | Banks $TICK/$TRIN/$ADD/$VOLD history (built now, fed later). |
 | `frontend/src/lib/realtime/signal-store.svelte.ts` | Runes WS store (reconnect/backoff/heartbeat). |

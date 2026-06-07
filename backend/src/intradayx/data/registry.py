@@ -16,6 +16,7 @@ from intradayx.data.composite import CompositeProvider
 from intradayx.data.provider import DataProvider
 from intradayx.data.providers.alpaca_provider import AlpacaProvider
 from intradayx.data.providers.polygon_provider import PolygonProvider
+from intradayx.data.providers.twelvedata_provider import TwelveDataProvider
 from intradayx.data.providers.yfinance_provider import YFinanceProvider
 
 logger = logging.getLogger(__name__)
@@ -34,8 +35,9 @@ def registered_names() -> list[str]:
 
 # Built-in vendors.
 register_provider("yfinance", YFinanceProvider)
-register_provider("alpaca", AlpacaProvider)
+register_provider("twelvedata", TwelveDataProvider)
 register_provider("polygon", PolygonProvider)
+register_provider("alpaca", AlpacaProvider)  # a broker; opt-in only (not in default)
 
 
 def build_provider(settings: Settings | None = None) -> DataProvider:
@@ -47,15 +49,22 @@ def build_provider(settings: Settings | None = None) -> DataProvider:
         if factory is None:
             logger.warning("unknown provider %r in config; skipping", name)
             continue
-        provider = factory()
-        if not provider.is_configured():
+        prov = factory()
+        if not prov.is_configured():
             logger.info("provider %r not configured (no credentials); skipping", name)
             continue
-        chosen.append((provider, priority))
+        chosen.append((prov, priority))
 
     if not chosen:
         logger.warning("no configured providers; falling back to yfinance")
         chosen = [(YFinanceProvider(), 99)]
 
     logger.info("data layer: %s", [p.name for p, _ in chosen])
-    return CompositeProvider(chosen)
+    provider: DataProvider = CompositeProvider(chosen)
+
+    if settings.cache_enabled:
+        from intradayx.data.cache import CachingProvider
+        from intradayx.storage.lake import Lake
+
+        provider = CachingProvider(provider, Lake(settings.data_dir))
+    return provider

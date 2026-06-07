@@ -26,7 +26,7 @@ actually works.
 | 4 | Export (CSV + PDF) | ✅ DONE |
 | 5 | API + Svelte dashboard (live-wired) | ✅ DONE |
 | 6 | Attribution ML ("self-learning culprit") | ✅ DONE (core) |
-| 7 | Capable vendor adapters (the real sub) | 🟡 Polygon `bars()` wired (add `POLYGON_API_KEY`); internals/options endpoints + other vendors still to wire |
+| 7 | Capable vendor adapters | 🟡 **Twelve Data** (free, non-broker, 1m since 2020) + **Polygon** `bars()` wired (just add a key); internals/options endpoints still to wire |
 | 8 | Short-squeeze detector | 🟡 PARTIAL — price/volume signature DONE (free); SI-confirmed needs paid feed |
 | 9 | Gamma-squeeze / GEX | 🔒 BLOCKED — needs options-chain data (paid); detector stub in place |
 | 10 | Scalping scanner | ✅ DONE |
