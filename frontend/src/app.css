@@ -1,0 +1,49 @@
+/* Dark is the default palette: applied to :root so the shell paints dark
+   before the theme store hydrates (no light flash), and duplicated under
+   [data-theme='dark'] so the store's explicit choice is equally specific. */
+:root,
+[data-theme='dark'] {
+	--bg: #0a0d12;
+	--panel: #0e1117;
+	--border: #1b2230;
+	--text: #c9d1d9;
+	--muted: #8b949e;
+	--accent: #58a6ff;
+	color-scheme: dark;
+}
+
+/* Light fintech palette: light surfaces, dark readable text, same blue accent
+   family (a touch darker for contrast on light), readable borders. */
+[data-theme='light'] {
+	--bg: #f6f8fa;
+	--panel: #ffffff;
+	--border: #d0d7de;
+	--text: #1f2328;
+	--muted: #59636e;
+	--accent: #0969da;
+	color-scheme: light;
+}
+
+* {
+	box-sizing: border-box;
+}
+
+html,
+body {
+	margin: 0;
+	padding: 0;
+	background: var(--bg);
+	color: var(--text);
+	font-family:
+		system-ui,
+		-apple-system,
+		Segoe UI,
+		Roboto,
+		sans-serif;
+}
+
+h1 {
+	font-size: 1.1rem;
+	font-weight: 600;
+	margin: 0;
+}
