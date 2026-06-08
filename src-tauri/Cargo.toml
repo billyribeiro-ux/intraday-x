@@ -1,0 +1,33 @@
+[package]
+name = "intraday-x"
+version = "0.0.1"
+description = "intraday-x — native macOS day-trading scanner & backtester"
+authors = ["Billy Ribeiro"]
+edition = "2021"
+rust-version = "1.77"
+
+# The library the desktop binary (and mobile, later) links against.
+[lib]
+name = "intraday_x_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-shell = "2"
+tauri-plugin-notification = "2"
+# Auto-update: signed in-app "Update available" → download + install + relaunch.
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync"] }
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true

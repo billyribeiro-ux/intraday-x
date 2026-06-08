@@ -1,0 +1,6 @@
+# Rust build output
+/target
+# Bundled engine sidecar (built by backend/scripts/build_sidecar.sh — a build artifact)
+/binaries
+# Tauri-generated schemas
+/gen

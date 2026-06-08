@@ -56,6 +56,8 @@ ml = [
     "hmmlearn>=0.3",
     "skfolio>=0.4",
 ]
+# Desktop app — bundle the engine as a Tauri sidecar binary (PyInstaller)
+desktop = ["pyinstaller>=6.10"]
 
 [dependency-groups]
 dev = [
