@@ -7,7 +7,6 @@
 		UTCTimestamp
 	} from 'lightweight-charts';
 
-	import { wsUrl } from '$lib/api/client';
 	import type { Signal } from '$lib/api/types';
 	import PriceChart from '$lib/chart/PriceChart.svelte';
 	import ConnectionStatus from '$lib/components/ConnectionStatus.svelte';
@@ -22,7 +21,7 @@
 	const store = new SignalStore();
 
 	$effect(() => {
-		store.connect(wsUrl());
+		store.connect();
 		return () => store.destroy();
 	});
 

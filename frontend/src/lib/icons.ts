@@ -14,3 +14,30 @@ export { default as PlugsConnectedIcon } from 'phosphor-svelte/lib/PlugsConnecte
 export { default as PlugsIcon } from 'phosphor-svelte/lib/PlugsIcon';
 export { default as PauseIcon } from 'phosphor-svelte/lib/PauseIcon';
 export { default as WarningIcon } from 'phosphor-svelte/lib/WarningIcon';
+
+// App-shell nav + theme toggle.
+export { default as GaugeIcon } from 'phosphor-svelte/lib/GaugeIcon';
+export { default as FlaskIcon } from 'phosphor-svelte/lib/FlaskIcon';
+export { default as GearIcon } from 'phosphor-svelte/lib/GearIcon';
+export { default as SunIcon } from 'phosphor-svelte/lib/SunIcon';
+export { default as MoonIcon } from 'phosphor-svelte/lib/MoonIcon';
+export { default as DesktopIcon } from 'phosphor-svelte/lib/DesktopIcon';
+
+// Settings screen.
+export { default as CheckCircleIcon } from 'phosphor-svelte/lib/CheckCircleIcon';
+export { default as CircleIcon } from 'phosphor-svelte/lib/CircleIcon';
+export { default as TrashIcon } from 'phosphor-svelte/lib/TrashIcon';
+export { default as KeyIcon } from 'phosphor-svelte/lib/KeyIcon';
+export { default as EyeIcon } from 'phosphor-svelte/lib/EyeIcon';
+export { default as EyeSlashIcon } from 'phosphor-svelte/lib/EyeSlashIcon';
+export { default as ChartLineIcon } from 'phosphor-svelte/lib/ChartLineIcon';
+export { default as ListBulletsIcon } from 'phosphor-svelte/lib/ListBulletsIcon';
+
+// Backtest studio.
+export { default as SpinnerIcon } from 'phosphor-svelte/lib/SpinnerIcon';
+export { default as XCircleIcon } from 'phosphor-svelte/lib/XCircleIcon';
+
+// Auto-update banner + settings.
+export { default as DownloadIcon } from 'phosphor-svelte/lib/DownloadIcon';
+export { default as ArrowClockwiseIcon } from 'phosphor-svelte/lib/ArrowClockwiseIcon';
+export { default as XIcon } from 'phosphor-svelte/lib/XIcon';

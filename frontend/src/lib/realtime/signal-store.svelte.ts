@@ -1,10 +1,13 @@
 // Runes-based realtime signal store. In Phase 0 it simply holds seed (demo)
-// signals. When `connect(url)` is called (Phase 5) it opens a websocket with
-// exponential backoff + a heartbeat watchdog and prepends incoming signals.
-// We export a class instance (you cannot export reassigned $state directly).
+// signals. When `connect()` is called (Phase 5) it resolves the engine's
+// websocket URL (dynamic port in the bundled Tauri app, the Vite proxy host in
+// dev) then opens a socket with exponential backoff + a heartbeat watchdog and
+// prepends incoming signals. We export a class instance (you cannot export
+// reassigned $state directly).
 
 import { browser } from '$app/environment';
 
+import { wsUrlAsync } from '$lib/api/backend';
 import type { Signal, StatusData, WsMessage } from '$lib/api/types';
 
 const MAX_SIGNALS = 500;
@@ -27,13 +30,36 @@ export class SignalStore {
 	#lastHeartbeat = 0;
 	#watchdog: ReturnType<typeof setInterval> | null = null;
 	#reconnect: ReturnType<typeof setTimeout> | null = null;
+	// Bumped by every connect()/destroy(). A url resolution that completes after
+	// its generation is superseded is dropped, so an async gap can't open a
+	// zombie socket once destroy() (or a fresh connect) has run.
+	#generation = 0;
 
 	constructor(seed: Signal[] = []) {
 		this.signals = seed;
 	}
 
-	connect(url: string): void {
+	connect(): void {
 		if (!browser) return;
+		const generation = ++this.#generation;
+		this.status = 'connecting';
+		void this.#resolveAndOpen(generation);
+	}
+
+	async #resolveAndOpen(generation: number): Promise<void> {
+		let url: string;
+		try {
+			url = await wsUrlAsync();
+		} catch (err) {
+			// Surface the failure so ConnectionStatus reflects it rather than
+			// silently sitting in 'connecting' forever.
+			if (generation !== this.#generation) return;
+			this.error = err instanceof Error ? err.message : 'failed to resolve websocket url';
+			this.status = 'closed';
+			return;
+		}
+		// destroy() or a newer connect() ran during the await — abandon this one.
+		if (generation !== this.#generation) return;
 		this.#url = url;
 		this.#open();
 	}
@@ -109,6 +135,9 @@ export class SignalStore {
 	}
 
 	destroy(): void {
+		// Invalidate any in-flight url resolution so it can't open a socket after
+		// teardown.
+		this.#generation++;
 		this.#stopWatchdog();
 		if (this.#reconnect) clearTimeout(this.#reconnect);
 		this.#reconnect = null;
