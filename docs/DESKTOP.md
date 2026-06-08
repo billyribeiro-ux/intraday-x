@@ -1,27 +1,30 @@
-# Desktop app — packaging the Python engine as a Tauri sidecar
+# Desktop app — packaging the Python engine as a Tauri resource
 
 The intraday-x desktop app is a Tauri shell (`src-tauri/`) that runs the Python
-engine as a bundled **sidecar binary**. The engine is a FastAPI server; the Tauri
-Rust core spawns it, reads `INTRADAYX_READY <port>` from its stdout, and points
-the webview at `http://127.0.0.1:<port>`.
+engine as a bundled **PyInstaller onedir folder**, shipped as a Tauri *resource*.
+The engine is a FastAPI server; the Tauri Rust core spawns it via `std::process`,
+reads `INTRADAYX_READY <port>` from its stdout, and points the webview at
+`http://127.0.0.1:<port>`.
 
-Sidecar path (Tauri `externalBin` `"binaries/intraday-engine"` + host triple):
+Engine location (built here, bundled into the app's `Resources/engine/`):
 
 ```
-src-tauri/binaries/intraday-engine-aarch64-apple-darwin
+src-tauri/binaries/engine/intraday-engine   (+ engine/_internal/)
+   → bundled to  intraday-x.app/Contents/Resources/engine/intraday-engine
 ```
 
-It is ONE self-contained executable produced by PyInstaller. `src-tauri/binaries/`
-is gitignored, so a fresh checkout has no sidecar until you build one (real or
-placeholder).
+It's a PyInstaller **onedir** build (a folder, not one file). `src-tauri/binaries/`
+is gitignored, so a fresh checkout has no engine until you build one (real or
+placeholder). tauri.conf maps it via `bundle.resources: {"binaries/engine":"engine"}`.
 
 ---
 
 ## Dev flow
 
-In dev the Rust core does **not** spawn the engine — the frontend talks to a
-separately-run server. You still need a placeholder file at the sidecar path or
-`cargo check` / `tauri dev` fail on the missing `externalBin`.
+In dev the Rust core does **not** spawn the engine (the resource isn't bundled in
+a dev run) — the frontend talks to a separately-run server. You still need a
+placeholder at the engine resource path or `cargo check` / `tauri dev` fail on the
+missing `bundle.resources` folder.
 
 ```bash
 # 1. once per fresh checkout — drop the no-op stub so Tauri builds
@@ -43,49 +46,51 @@ pnpm tauri dev
 Build the real self-contained engine, then bundle the app:
 
 ```bash
-# 1. build the sidecar (slow — minutes; needs `brew install libomp` first)
+# 1. build the engine onedir (a few minutes)
 bash backend/scripts/build_sidecar.sh
-# -> src-tauri/binaries/intraday-engine-aarch64-apple-darwin
+# -> src-tauri/binaries/engine/  (intraday-engine + _internal/)
 
-# 2. bundle + sign + notarize the desktop app
+# 2. bundle the desktop app (add --bundles app to skip the slow DMG)
 pnpm tauri build
 ```
 
-`build_sidecar.sh` runs `uv sync --extra desktop --extra api --extra ml
---extra export` then `pyinstaller intraday-engine.spec`, and copies the result
-to the triple-suffixed sidecar path.
+`build_sidecar.sh` runs `uv sync --extra desktop --extra api` (NOT ml/export — the
+app's API surface never imports the ML stack) then `pyinstaller
+intraday-engine.spec`, and copies the onedir folder to `src-tauri/binaries/engine/`.
+Verified end-to-end: the bundled engine handshakes from inside the built `.app`
+in ~3 s (`Resources/engine/intraday-engine` → `/healthz` 200).
 
-**Other architectures:** the triple is hardcoded to `aarch64-apple-darwin`
-(Apple Silicon). On Intel, change the filename + `target_arch="x86_64"` in
-`intraday-engine.spec` to match `rustc -vV | grep host`
-(`x86_64-apple-darwin`).
+**Other architectures:** the engine folder name (`engine/`) is arch-agnostic, but
+the spec's `target_arch="arm64"` is Apple-Silicon-specific. On Intel, set
+`target_arch="x86_64"` in `intraday-engine.spec` to match `rustc -vV | grep host`.
 
 ---
 
 ## Size
 
-Expect a **~150–300 MB** sidecar. The scientific stack (scipy, scikit-learn,
-lightgbm, xgboost, catboost, statsmodels, shap, tsfresh, polars, duckdb,
-pyarrow, matplotlib) is large and ships compiled native libs. This is normal for
-a bundled-Python data app; the spec already excludes GUI backends
-(tkinter/Qt/IPython) to trim what it can.
+Measured: the **onedir engine is ~564 MB** on disk (uncompressed) and the bundled
+**`.app` is ~664 MB**. The bulk is the data stack (polars, duckdb, pyarrow,
+pandas, scipy) + the Python runtime — the heavy ML libs (lightgbm/xgboost/shap/
+tsfresh/sklearn) are intentionally NOT bundled (the app never imports them; they
+live in the CLI `learn` path). The spec also excludes GUI backends
+(tkinter/Qt/IPython). Onedir trades disk size for startup speed (see pitfall #4).
 
 ---
 
 ## Known PyInstaller pitfalls (encoded in the spec)
 
-1. **`libomp.dylib` for lightgbm / xgboost.** Both link an OpenMP runtime that
-   is *not* part of macOS and *not* in the wheels. Without it the engine dies on
-   first ML import: `Library not loaded: @rpath/libomp.dylib`. The spec locates
-   it via `brew --prefix libomp` (with `/opt/homebrew` fallbacks) and bundles it
-   at the binary root. **Install it first:** `brew install libomp`.
+1. **(N/A — api-only build.)** Earlier builds bundled lightgbm/xgboost, which need
+   an OpenMP runtime (`libomp.dylib`) not shipped in the wheels. The trimmed
+   api-only sidecar drops those libs, so no libomp is needed. If you ever add the
+   ML stack back to the sidecar, restore the libomp bundling in the spec
+   (`brew install libomp`) or it dies with `Library not loaded: @rpath/libomp.dylib`.
 
-2. **Hidden imports the static analyzer can't see.** sklearn, scipy, shap,
-   tsfresh, statsmodels, polars, duckdb, pyarrow, and the gradient-boosting libs
-   load submodules / data / native code dynamically. The spec uses
-   `collect_all` / `collect_submodules` / `collect_data_files` for each so the
-   binary builds *and boots*, instead of building clean then dying with
-   `ModuleNotFoundError` inside the Tauri shell where there's no Python fallback.
+2. **Hidden imports the static analyzer can't see.** polars, duckdb, pyarrow,
+   pandas, scipy, and the uvicorn/fastapi web stack load submodules / data /
+   native code dynamically. The spec uses `collect_all` / `collect_submodules` /
+   `collect_data_files` for each so the binary builds *and boots*, instead of
+   building clean then dying with `ModuleNotFoundError` inside the Tauri shell
+   where there's no Python fallback.
 
 3. **uvicorn's string-named plumbing.** uvicorn picks its event loop, HTTP, and
    websocket implementations by name at runtime (`uvicorn.loops.auto`,
@@ -93,11 +98,12 @@ a bundled-Python data app; the spec already excludes GUI backends
    `hiddenimports`, and uvloop/httptools/websockets are collected whole, so the
    `[standard]` "auto" picks resolve.
 
-4. **Onefile temp-extraction startup latency.** A onefile binary unpacks itself
-   to a temp dir on every launch → ~1–3 s cold start for this stack. We accept
-   it because Tauri's `externalBin` wants exactly one invocable file (a onedir
-   folder is not a single sidecar). The handshake is printed *before* uvicorn
-   blocks, so the Rust supervisor isn't left hanging during extraction.
+4. **onedir vs onefile startup.** A *onefile* binary self-extracts to a temp dir
+   on EVERY launch — measured ~17 s cold start for this data stack, every time. We
+   use *onedir* instead (shipped as a Tauri resource folder + spawned via
+   `std::process`, not `externalBin`): no per-launch extraction → **~0.6 s warm,
+   ~14 s only on the first-ever launch** (cold disk read of the 564 MB folder).
+   The frontend resolver allows 30 s for the handshake to cover that first launch.
 
 5. **First-run macOS code-signing / notarization.** The sidecar is an unsigned
    Mach-O until `tauri build` signs it; Gatekeeper will quarantine a hand-copied

@@ -26,7 +26,7 @@
   "bundle": {
     "active": true,
     "targets": ["app", "dmg"],
-    "externalBin": ["binaries/intraday-engine"],
+    "resources": { "binaries/engine": "engine" },
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
