@@ -161,6 +161,7 @@ class BacktestRequest(BaseModel):
     timeframe: str = "5m"
     days: int = 60
     max_hold: int = 24
+    scanner: str = "reversal"  # "reversal" | "scalping" — which scanner to backtest
 
 
 class TodStatDTO(BaseModel):
@@ -178,6 +179,21 @@ class MetricsDTO(BaseModel):
     total_pnl_cents: int
     max_drawdown_cents: int
     sharpe_per_trade: float
+    deflated_sharpe: float | None
+    """Deflated Sharpe Ratio P(true SR > 0) in [0, 1], or None for < 3 trades.
+
+    Computed IN-SAMPLE over this backtest's realized per-trade returns with
+    ``n_trials = 1`` (the same honest method the CLI ``backtest`` command uses) —
+    i.e. it deflates only the per-observation Sharpe for skew/kurtosis and
+    sample size, NOT for multiple-testing / threshold selection. This is the
+    single-run "is this Sharpe distinguishable from zero?" probability, NOT an
+    out-of-sample figure. Honest out-of-sample deflation (deflated by the
+    threshold grid) requires the walk-forward optimizer (``/api/walkforward``,
+    CLI ``walkforward``); a caption on this field must say "in-sample" only.
+    ``None`` when fewer than 3 trades make the moments undefined — never
+    fabricated as 0.0 for a degenerate sample.
+    """
+    n_trials: int  # multiple-testing trials used to deflate (1 = in-sample single run)
     per_tod: list[TodStatDTO]
 
 

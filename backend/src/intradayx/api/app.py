@@ -18,7 +18,7 @@ from fastapi import FastAPI, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 from intradayx.api import metrics
-from intradayx.api.routes import analysis, market
+from intradayx.api.routes import analysis, market, settings
 from intradayx.api.ws import ConnectionManager, SignalPoller, signal_message, status_message
 from intradayx.config import Settings, get_settings
 
@@ -114,6 +114,7 @@ app.add_middleware(
 )
 app.include_router(market.router)
 app.include_router(analysis.router)
+app.include_router(settings.router)
 
 
 @app.get("/healthz", tags=["health"])

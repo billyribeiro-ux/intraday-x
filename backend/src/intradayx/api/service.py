@@ -150,13 +150,32 @@ def build_chart(symbol: str, timeframe: str, days: int) -> BarsResponse:
     )
 
 
-def run_backtest_dto(symbol: str, timeframe: str, days: int, max_hold: int) -> BacktestResponse:
+def run_backtest_dto(
+    symbol: str, timeframe: str, days: int, max_hold: int, scanner: str = "reversal"
+) -> BacktestResponse:
+    from intradayx.attribution.validation import deflated_sharpe_ratio
+    from intradayx.backtest.runner import DEFAULT_NOTIONAL_CENTS
+    from intradayx.signals.strategy import make_strategy
+
     tf = Timeframe(timeframe)
     provider = get_provider()
     end = datetime.now(tz=UTC)
     bars = provider.bars(symbol.upper(), end - timedelta(days=days), end, tf)
-    res = run_backtest(bars, provider.capabilities(), engine=get_engine(), max_hold_bars=max_hold)
+    # Build the engine for the CHOSEN scanner (mirrors run_scan), not the cached
+    # default-reversal engine — so the backtest actually runs the selected scanner.
+    engine = SignalEngine(make_strategy(scanner))
+    res = run_backtest(bars, provider.capabilities(), engine=engine, max_hold_bars=max_hold)
     m = res.metrics
+
+    # Deflated Sharpe — IN-SAMPLE, n_trials=1, computed over this backtest's
+    # realized per-trade returns (pnl / notional). Identical method to the CLI
+    # `backtest` command (which uses /$10k notional, trials=1). Needs >= 3
+    # trades for skew/kurtosis moments; below that it is honestly None, never
+    # fabricated. OOS deflation by a threshold grid lives in walk-forward.
+    returns = [t.pnl_cents / DEFAULT_NOTIONAL_CENTS for t in res.trades]
+    n_trials = 1
+    deflated_sharpe = deflated_sharpe_ratio(returns, n_trials) if len(returns) >= 3 else None
+
     metrics = MetricsDTO(
         n_trades=m.n_trades,
         win_rate=m.win_rate,
@@ -165,6 +184,8 @@ def run_backtest_dto(symbol: str, timeframe: str, days: int, max_hold: int) -> B
         total_pnl_cents=m.total_pnl_cents,
         max_drawdown_cents=m.max_drawdown_cents,
         sharpe_per_trade=m.sharpe_per_trade,
+        deflated_sharpe=deflated_sharpe,
+        n_trials=n_trials,
         per_tod=[
             TodStatDTO(
                 bucket=s.bucket,

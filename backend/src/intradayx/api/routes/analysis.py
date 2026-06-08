@@ -24,4 +24,6 @@ def scan(req: ScanRequest) -> ScanResponse:
 
 @router.post("/backtest", response_model=BacktestResponse)
 def backtest(req: BacktestRequest) -> BacktestResponse:
-    return run_backtest_dto(req.symbol, req.timeframe, req.days, req.max_hold)
+    if req.scanner not in ("reversal", "scalping"):
+        raise HTTPException(status_code=400, detail="scanner must be 'reversal' or 'scalping'")
+    return run_backtest_dto(req.symbol, req.timeframe, req.days, req.max_hold, scanner=req.scanner)
