@@ -58,9 +58,6 @@ jobs:
         with:
           enable-cache: true
 
-      - name: Install libomp (lightgbm / xgboost OpenMP runtime)
-        run: brew install libomp
-
       - name: Install frontend dependencies
         working-directory: frontend
         run: pnpm install --frozen-lockfile

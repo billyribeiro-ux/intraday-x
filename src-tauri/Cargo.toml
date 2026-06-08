@@ -16,7 +16,6 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 tauri = { version = "2", features = [] }
-tauri-plugin-shell = "2"
 tauri-plugin-notification = "2"
 # Auto-update: signed in-app "Update available" → download + install + relaunch.
 tauri-plugin-updater = "2"

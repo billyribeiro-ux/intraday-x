@@ -29,15 +29,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BACKEND_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${BACKEND_DIR}"
 
-TARGET_TRIPLE="aarch64-apple-darwin"
 SIDECAR_NAME="intraday-engine"
 DEST_DIR="../src-tauri/binaries"
-DEST="${DEST_DIR}/${SIDECAR_NAME}-${TARGET_TRIPLE}"
+ENGINE_DIR="${DEST_DIR}/engine"   # onedir folder; Tauri ships it via bundle.resources
 
-echo "==> intraday-x sidecar build"
+echo "==> intraday-x sidecar build (onedir)"
 echo "    backend:  ${BACKEND_DIR}"
-echo "    target:   ${TARGET_TRIPLE}"
-echo "    dest:     ${DEST}"
+echo "    dest:     ${ENGINE_DIR}/ (inner exe: ${SIDECAR_NAME})"
 
 # 1. Sync the build env: pyinstaller (desktop) + the api extra (fastapi/uvicorn/
 #    websockets/apscheduler/prometheus). NOT ml/export — the app's API surface
@@ -55,14 +53,18 @@ uv run pyinstaller intraday-engine.spec \
   --distpath dist \
   --workpath build/pyinstaller
 
-# 3. Install into the Tauri sidecar location with the host triple suffix.
-echo "==> [3/4] install sidecar"
+# 3. Install the whole onedir folder. PyInstaller onedir emits dist/intraday-engine/
+#    (the exe + _internal/). Tauri bundles it via bundle.resources and the Rust
+#    core spawns engine/intraday-engine directly (no externalBin, no per-launch
+#    extraction → fast cold start).
+echo "==> [3/4] install engine (onedir) → ${ENGINE_DIR}"
+rm -rf "${ENGINE_DIR}"
 mkdir -p "${DEST_DIR}"
-cp "dist/${SIDECAR_NAME}" "${DEST}"
-chmod +x "${DEST}"
+cp -R "dist/${SIDECAR_NAME}" "${ENGINE_DIR}"
+chmod +x "${ENGINE_DIR}/${SIDECAR_NAME}"
 
 # 4. Report.
 echo "==> [4/4] done"
-SIZE="$(du -h "${DEST}" | cut -f1)"
-echo "✅ sidecar at src-tauri/binaries/${SIDECAR_NAME}-${TARGET_TRIPLE} (${SIZE})"
+SIZE="$(du -sh "${ENGINE_DIR}" | cut -f1)"
+echo "✅ engine (onedir) at src-tauri/binaries/engine/ (${SIZE}); inner exe: engine/${SIDECAR_NAME}"
 echo "   Next: cd ../ && pnpm tauri build"

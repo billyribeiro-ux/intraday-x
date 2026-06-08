@@ -173,20 +173,21 @@ a = Analysis(
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
+# ONEDIR build: the exe excludes binaries (they go in COLLECT below). Unlike
+# onefile, a onedir app does NOT self-extract to a temp dir on every launch —
+# imports come straight from the already-on-disk _internal/, which cuts the cold
+# start from ~17s to a few seconds. Tauri ships the whole folder as a resource
+# (bundle.resources) and the Rust core spawns the inner exe directly.
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
     [],
+    exclude_binaries=True,  # onedir: binaries + datas are collected by COLLECT
     name="intraday-engine",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,            # keep symbols; macOS notarization is happier, size diff is small
     upx=False,              # UPX corrupts macOS dylibs / breaks codesigning — never on darwin
-    upx_exclude=[],
-    runtime_tmpdir=None,    # default per-launch temp extraction (onefile)
     console=True,           # MUST be a console app: Tauri reads the stdout handshake
                             # ("INTRADAYX_READY <port>" / "INTRADAYX_FATAL <msg>").
     disable_windowed_traceback=False,
@@ -194,4 +195,14 @@ exe = EXE(
     target_arch="arm64",    # Apple Silicon; change to "x86_64" for Intel Macs.
     codesign_identity=None, # signing is done by Tauri's bundler at `tauri build`.
     entitlements_file=None,
+)
+
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.datas,
+    strip=False,
+    upx=False,
+    upx_exclude=[],
+    name="intraday-engine",  # → dist/intraday-engine/ (exe + _internal/)
 )
