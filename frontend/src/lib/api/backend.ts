@@ -31,16 +31,30 @@ function devBackend(): Backend {
 async function resolvePort(): Promise<number | null> {
 	// Lazy-import the Tauri APIs so the plain browser build never loads them.
 	const { invoke } = await import('@tauri-apps/api/core');
-	const existing = await invoke<number | null>('get_backend_port');
-	if (typeof existing === 'number') return existing;
-	// The engine may not have finished its stdout handshake yet — wait once.
 	const { once } = await import('@tauri-apps/api/event');
+	// Subscribe to the event BEFORE reading the stored port, so a handshake that
+	// lands in the gap between the two can't be missed (TOCTOU). Resolve on
+	// whichever arrives first; time out so a never-ready engine doesn't hang.
 	return new Promise<number | null>((resolve) => {
-		const timer = setTimeout(() => resolve(null), 15000);
-		void once<{ port: number }>('backend-ready', (event) => {
+		let done = false;
+		const finish = (port: number | null) => {
+			if (done) return;
+			done = true;
 			clearTimeout(timer);
-			resolve(event.payload.port);
-		});
+			resolve(port);
+		};
+		// 30s margin: a bundled PyInstaller onefile self-extracts on launch, so the
+		// engine's first handshake can lag several seconds on a cold start.
+		const timer = setTimeout(() => finish(null), 30000);
+		void once<{ port: number }>('backend-ready', (event) => finish(event.payload.port));
+		void invoke<number | null>('get_backend_port').then(
+			(port) => {
+				if (typeof port === 'number') finish(port);
+			},
+			() => {
+				/* invoke failed — let the event or the timeout decide */
+			}
+		);
 	});
 }
 
@@ -48,14 +62,21 @@ let cached: Promise<Backend> | null = null;
 
 export function resolveBackend(): Promise<Backend> {
 	if (cached) return cached;
-	cached = (async () => {
+	const attempt = (async (): Promise<Backend> => {
 		if (!inTauri()) return devBackend();
 		const port = await resolvePort();
-		// `tauri dev` has no sidecar → port is null → fall back to the proxy/host.
-		if (port == null) return devBackend();
+		if (port == null) {
+			// Engine not ready yet (slow PyInstaller cold start) or `tauri dev`
+			// (no sidecar). Do NOT cache the fallback — clear it so the next call
+			// retries once the engine is up; otherwise we'd talk to a dead proxy
+			// for the whole session with no recovery.
+			cached = null;
+			return devBackend();
+		}
 		return { httpBase: `http://127.0.0.1:${port}`, wsBase: `ws://127.0.0.1:${port}` };
 	})();
-	return cached;
+	cached = attempt;
+	return attempt;
 }
 
 /** Absolute HTTP base for REST calls ('' in dev → relative, proxied). */

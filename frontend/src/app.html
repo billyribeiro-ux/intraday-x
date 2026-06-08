@@ -4,6 +4,24 @@
 		<meta charset="utf-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
 		<meta name="text-scale" content="scale" />
+		<script>
+			// Apply the saved theme BEFORE first paint to avoid a flash-of-dark for
+			// light/system-light users (the SPA boots with no data-theme otherwise).
+			// Keep the storage key in sync with src/lib/stores/theme.svelte.ts.
+			try {
+				var m = localStorage.getItem('intraday-x:theme');
+				if (m !== 'dark' && m !== 'light' && m !== 'system') m = 'dark';
+				var resolved =
+					m === 'system'
+						? window.matchMedia('(prefers-color-scheme: dark)').matches
+							? 'dark'
+							: 'light'
+						: m;
+				document.documentElement.dataset.theme = resolved;
+			} catch (e) {
+				document.documentElement.dataset.theme = 'dark';
+			}
+		</script>
 		%sveltekit.head%
 	</head>
 	<body data-sveltekit-preload-data="hover">

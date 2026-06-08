@@ -12,9 +12,8 @@
 #
 # Prerequisites:
 #   - uv (https://docs.astral.sh/uv/) on PATH
-#   - Homebrew libomp for lightgbm/xgboost OpenMP:  brew install libomp
-#     (without it the binary builds but the ML stack dies at runtime —
-#      the spec prints a warning; see docs/DESKTOP.md pitfall #1)
+#   (No libomp needed: the sidecar is api-only and bundles no OpenMP-linked ML
+#    libs. The app never imports lightgbm/xgboost/shap/etc. — those are CLI-only.)
 #
 # Target triple note:
 #   This script hardcodes aarch64-apple-darwin (Apple Silicon). For an Intel
@@ -40,24 +39,16 @@ echo "    backend:  ${BACKEND_DIR}"
 echo "    target:   ${TARGET_TRIPLE}"
 echo "    dest:     ${DEST}"
 
-# 1. Sync the build env: pyinstaller (desktop) + all runtime extras the engine
-#    imports at startup (api + ml + export). Without ml/export/api the spec's
-#    collect_all calls for those packages no-op and the bundled engine would
-#    crash on first import inside Tauri.
-echo "==> [1/4] uv sync (desktop + api + ml + export)"
-uv sync --extra desktop --extra api --extra ml --extra export
-
-# Soft check for libomp so the operator isn't surprised at runtime.
-if ! { [ -e /opt/homebrew/opt/libomp/lib/libomp.dylib ] \
-       || [ -e /usr/local/opt/libomp/lib/libomp.dylib ] \
-       || { command -v brew >/dev/null 2>&1 && brew --prefix libomp >/dev/null 2>&1; }; }; then
-  echo "    WARNING: libomp.dylib not found. lightgbm/xgboost will fail at runtime."
-  echo "             Install with: brew install libomp"
-fi
+# 1. Sync the build env: pyinstaller (desktop) + the api extra (fastapi/uvicorn/
+#    websockets/apscheduler/prometheus). NOT ml/export — the app's API surface
+#    never imports them, so bundling them only bloats size + cold start. The base
+#    deps (polars/duckdb/pyarrow/pandas/scipy/yfinance) come with the project.
+echo "==> [1/4] uv sync (desktop + api)"
+uv sync --extra desktop --extra api
 
 # 2. Run PyInstaller against the spec. --clean wipes stale caches (stale hooks
 #    are a classic source of "works on my machine"); separate work/dist dirs.
-echo "==> [2/4] pyinstaller (this is slow — minutes — and produces ~150-300MB)"
+echo "==> [2/4] pyinstaller (a few minutes; api-only build is far smaller than the full ML stack)"
 uv run pyinstaller intraday-engine.spec \
   --noconfirm \
   --clean \

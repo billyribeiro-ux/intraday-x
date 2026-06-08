@@ -9,10 +9,6 @@
     "updater:default",
     "process:default",
     {
-      "identifier": "shell:allow-execute",
-      "allow": [{ "name": "binaries/intraday-engine", "sidecar": true }]
-    },
-    {
       "identifier": "shell:allow-spawn",
       "allow": [{ "name": "binaries/intraday-engine", "sidecar": true }]
     },

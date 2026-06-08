@@ -61,11 +61,11 @@ export class SignalStore {
 		// destroy() or a newer connect() ran during the await — abandon this one.
 		if (generation !== this.#generation) return;
 		this.#url = url;
-		this.#open();
+		this.#open(generation);
 	}
 
-	#open(): void {
-		if (!this.#url) return;
+	#open(generation: number): void {
+		if (generation !== this.#generation || !this.#url) return;
 		this.status = this.#ws ? 'reconnecting' : 'connecting';
 		const ws = new WebSocket(this.#url);
 		this.#ws = ws;
@@ -131,7 +131,14 @@ export class SignalStore {
 		const jitter = this.#backoff * 0.2 * (Math.random() - 0.5);
 		const delay = Math.min(this.#backoff + jitter, BACKOFF_MAX_MS);
 		this.#backoff = Math.min(this.#backoff * 2, BACKOFF_MAX_MS);
-		this.#reconnect = setTimeout(() => this.#open(), delay);
+		// Re-resolve the URL on every reconnect rather than reusing the stale
+		// #url: paired with backend.ts's uncached fallback, this lets a slow/cold
+		// engine be picked up once it's actually listening.
+		const generation = this.#generation;
+		this.#reconnect = setTimeout(() => {
+			if (generation !== this.#generation) return;
+			void this.#resolveAndOpen(generation);
+		}, delay);
 	}
 
 	destroy(): void {

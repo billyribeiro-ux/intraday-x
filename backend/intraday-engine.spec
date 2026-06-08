@@ -16,18 +16,22 @@
 #   (`intraday-engine/intraday-engine` + `_internal/`) that Tauri's bundler
 #   will NOT relocate as one sidecar — you'd have to hand-flatten it. Onefile
 #   gives exactly the one path the bundler signs, notarizes, and ships.
-#   Trade-off: onefile self-extracts to a temp dir on each launch (~1-3s cold
-#   start for this stack); that's acceptable for a desktop app that starts once.
-#   See docs/DESKTOP.md "PyInstaller pitfalls".
+#   MEASURED trade-off: onefile self-extracts to a temp dir AND uses the frozen
+#   importer, so importing the data stack (polars/duckdb/pyarrow/pandas/scipy)
+#   costs ~17s cold start on every launch for this build (179MB). The frontend
+#   resolver tolerates it (30s handshake timeout), but for snappy startup the
+#   real fix is a onedir build invoked via a Tauri resource dir — see
+#   docs/DESKTOP.md "Startup latency / onedir". Tracked as a follow-up.
 #
-# WHY the aggressive collect_all/collect_submodules below:
-#   The scientific stack (sklearn, scipy, lightgbm, xgboost, catboost,
-#   statsmodels, shap, tsfresh, polars, duckdb, pyarrow) loads code via
-#   importlib / __import__ / C-extension side modules that PyInstaller's static
-#   analysis CANNOT see. Left to defaults the binary builds fine and then dies
-#   at runtime with ModuleNotFoundError / missing-.dylib. collect_all pulls the
-#   submodules + data files + compiled binaries for each so the engine actually
-#   boots inside the Tauri shell, where there is no Python env to fall back to.
+# WHY collect_all/collect_submodules below:
+#   The runtime stack (polars, duckdb, pyarrow, pandas, scipy + the uvicorn/
+#   fastapi web stack) loads code via importlib / __import__ / C-extension side
+#   modules that PyInstaller's static analysis CANNOT see. Left to defaults the
+#   binary builds fine and then dies at runtime with ModuleNotFoundError /
+#   missing-.dylib. collect_all pulls the submodules + data files + compiled
+#   binaries so the engine boots inside the Tauri shell, where there is no Python
+#   env to fall back to. The heavy ML stack is intentionally NOT bundled (see the
+#   note at _COLLECT_ALL) — the app never imports it.
 
 import os
 import sys
@@ -71,25 +75,22 @@ def _collect(pkg):
 
 # Full collect_all for the packages that hide submodules / data / native libs
 # from static analysis. Order is irrelevant; duplicates are de-duped by build.
+# NOTE: the desktop app's API surface (scan / backtest / bars / capabilities /
+# settings / ws) imports NONE of the heavy ML stack at startup OR on any request
+# path — verified: lightgbm/xgboost/catboost/shap/tsfresh/sklearn/statsmodels are
+# only used by the CLI `learn` command, which the app does not expose. So the
+# sidecar is built with `--extra api` only (NOT `ml`/`export`), which cuts the
+# binary from ~290MB to a fraction and slashes the onefile cold-start. The
+# backtest's Deflated Sharpe uses numpy + scipy.stats (base deps), so scipy stays.
 _COLLECT_ALL = [
     # Data engines (Rust/C extensions + Arrow data files)
     "polars",
     "duckdb",
     "pyarrow",
-    # Core scientific stack
+    "pandas",
+    "pandas_market_calendars",
+    # Scientific stack actually used at runtime (features/pivots + Deflated Sharpe)
     "scipy",
-    "sklearn",          # distribution name scikit-learn; import name sklearn
-    "statsmodels",
-    # Gradient boosting (each ships a compiled native lib — see libomp note)
-    "lightgbm",
-    "xgboost",
-    "catboost",
-    # Explainability / feature extraction
-    "shap",
-    "tsfresh",
-    # Plotting / reporting (export extra)
-    "matplotlib",
-    "reportlab",
     # Web stack (api extra)
     "uvicorn",
     "fastapi",
@@ -102,12 +103,6 @@ _COLLECT_ALL = [
 ]
 for _pkg in _COLLECT_ALL:
     _collect(_pkg)
-
-# numba is an optional/transitive dep of parts of the ML stack (e.g. shap,
-# tsfresh paths). If present it MUST be collected whole — it loads its own
-# llvmlite native lib dynamically. Skipped cleanly if not installed.
-_collect("numba")
-_collect("llvmlite")
 
 # --- intradayx itself ---------------------------------------------------------
 # desktop_sidecar imports intradayx.api.app and intradayx.config statically, but
@@ -151,53 +146,10 @@ for _pkg in ("uvloop", "httptools", "websockets", "wsproto", "h11", "h2", "anyio
 # lazily; pin it so /metrics doesn't 500 inside the bundle.
 hiddenimports += collect_submodules("prometheus_client")
 
-# --- macOS OpenMP runtime (libomp.dylib) --------------------------------------
-# lightgbm and xgboost (and parts of sklearn) link against an OpenMP runtime.
-# On macOS that is libomp.dylib, which is NOT part of the OS and NOT shipped by
-# the wheels — it comes from Homebrew. Without it the sidecar dies on first
-# import of lightgbm/xgboost with:
-#   "Library not loaded: @rpath/libomp.dylib".
-# We locate it via `brew --prefix libomp` and bundle it at the binary root so the
-# @rpath lookup resolves inside the onefile extraction dir.
-#
-# If brew/libomp is absent the build still succeeds but the ML stack will fail at
-# runtime — build_sidecar.sh prints a warning, and docs/DESKTOP.md lists this as
-# pitfall #1. Install with: `brew install libomp`.
-def _bundle_libomp():
-    import shutil
-    import subprocess
-
-    brew = shutil.which("brew")
-    candidates = []
-    if brew:
-        try:
-            prefix = subprocess.check_output(
-                [brew, "--prefix", "libomp"], text=True, stderr=subprocess.DEVNULL
-            ).strip()
-            if prefix:
-                candidates.append(os.path.join(prefix, "lib", "libomp.dylib"))
-        except Exception as exc:  # noqa: BLE001
-            print(f"[intraday-engine.spec] `brew --prefix libomp` failed: {exc}", file=sys.stderr)
-    # Common Apple-Silicon Homebrew fallbacks if `brew` isn't on PATH at build time.
-    candidates += [
-        "/opt/homebrew/opt/libomp/lib/libomp.dylib",
-        "/opt/homebrew/lib/libomp.dylib",
-        "/usr/local/opt/libomp/lib/libomp.dylib",  # Intel Homebrew prefix
-    ]
-    for path in candidates:
-        if os.path.exists(path):
-            # ("." => place at the bundle/extraction root so @rpath/libomp.dylib resolves)
-            print(f"[intraday-engine.spec] bundling libomp from {path}", file=sys.stderr)
-            return [(path, ".")]
-    print(
-        "[intraday-engine.spec] WARNING: libomp.dylib not found — lightgbm/xgboost "
-        "will fail at runtime. Run `brew install libomp` and rebuild.",
-        file=sys.stderr,
-    )
-    return []
-
-
-binaries += _bundle_libomp()
+# NOTE: no libomp.dylib bundling. The trimmed sidecar (api-only) links no
+# OpenMP-dependent libs — lightgbm/xgboost/sklearn are excluded. If the ML stack
+# is ever added back to the sidecar, restore an `@rpath/libomp.dylib` bundler
+# (from `brew --prefix libomp`) or lightgbm/xgboost will fail to import.
 
 # ------------------------------------------------------------------------------
 a = Analysis(

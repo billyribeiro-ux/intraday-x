@@ -31,6 +31,25 @@ def _free_port() -> int:
         return int(sock.getsockname()[1])
 
 
+def _start_orphan_watchdog() -> None:
+    """Exit if the parent (the Tauri app) dies. The Rust core kills us on a clean
+    quit, but it can't on the paths where no Rust runs (panic=abort, SIGKILL). On
+    macOS an orphaned child is reparented to launchd (pid 1), so a ppid of 1 means
+    the app is gone — don't outlive it (a zombie engine would hold its port).
+    """
+    import os
+    import threading
+    import time
+
+    def _watch() -> None:
+        while True:
+            if os.getppid() == 1:
+                os._exit(0)
+            time.sleep(2.0)
+
+    threading.Thread(target=_watch, daemon=True).start()
+
+
 def main() -> None:
     try:
         import uvicorn
@@ -41,6 +60,7 @@ def main() -> None:
         port = _free_port()
         # Handshake FIRST: the Rust supervisor blocks on this exact line.
         print(f"INTRADAYX_READY {port}", flush=True)
+        _start_orphan_watchdog()
 
         settings = get_settings()
         uvicorn.run(

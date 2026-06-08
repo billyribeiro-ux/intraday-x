@@ -52,7 +52,10 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app_handle, event| {
-            if let RunEvent::ExitRequested { .. } = event {
+            // Kill the engine on BOTH ExitRequested and the terminal Exit event —
+            // on macOS ExitRequested is unreliable (Cmd-Q / last-window-close), so
+            // Exit is the backstop. .take() makes the double-fire idempotent.
+            if matches!(event, RunEvent::ExitRequested { .. } | RunEvent::Exit) {
                 if let Some(child) = app_handle
                     .state::<EngineState>()
                     .child
@@ -69,7 +72,10 @@ pub fn run() {
 /// Spawn the Python engine sidecar and pump its stdout. Failure is non-fatal:
 /// in dev there is no bundled binary, and the frontend talks to :8000 instead.
 fn spawn_engine(handle: tauri::AppHandle) {
-    let command = match handle.shell().sidecar("intraday-engine") {
+    // Must match the externalBin path + the capability scope name exactly, or
+    // the shell scope check denies the spawn at runtime (dev skips the sidecar,
+    // so this only bites the bundled app).
+    let command = match handle.shell().sidecar("binaries/intraday-engine") {
         Ok(command) => command,
         Err(err) => {
             eprintln!("[engine] sidecar unavailable ({err}); falling back to dev backend on :8000");
@@ -88,11 +94,18 @@ fn spawn_engine(handle: tauri::AppHandle) {
     *handle.state::<EngineState>().child.lock().unwrap() = Some(child);
 
     tauri::async_runtime::spawn(async move {
+        // Stdout arrives as raw byte chunks, not lines — a handshake line could be
+        // split across chunks or coalesced with a log line. Buffer and split on
+        // '\n' so the READY line is parsed whole.
+        let mut buf = String::new();
         while let Some(event) = rx.recv().await {
             match event {
                 CommandEvent::Stdout(bytes) => {
-                    let line = String::from_utf8_lossy(&bytes);
-                    handle_engine_line(&handle, line.trim());
+                    buf.push_str(&String::from_utf8_lossy(&bytes));
+                    while let Some(nl) = buf.find('\n') {
+                        let line: String = buf.drain(..=nl).collect();
+                        handle_engine_line(&handle, line.trim_end());
+                    }
                 }
                 CommandEvent::Stderr(bytes) => {
                     eprintln!("[engine] {}", String::from_utf8_lossy(&bytes).trim());

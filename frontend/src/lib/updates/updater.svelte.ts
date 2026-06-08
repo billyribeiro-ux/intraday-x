@@ -37,15 +37,13 @@ function inTauri(): boolean {
  */
 function isUnconfiguredError(message: string): boolean {
 	const m = message.toLowerCase();
+	// ONLY the specific "feature not configured" conditions. NOT signature,
+	// network, or manifest-parse failures — those contain tokens like "pubkey" /
+	// "endpoints" too and MUST surface as 'error' rather than being hidden.
 	return (
-		m.includes('updater') &&
-		(m.includes('not configured') ||
-			m.includes('no configuration') ||
-			m.includes('missing') ||
-			m.includes('no endpoint') ||
-			m.includes('endpoints') ||
-			m.includes('pubkey') ||
-			m.includes('public key'))
+		m.includes('no endpoints configured') ||
+		m.includes('updater not configured') ||
+		m.includes('the updater is not configured')
 	);
 }
 

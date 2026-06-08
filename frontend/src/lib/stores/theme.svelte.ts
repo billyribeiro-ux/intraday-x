@@ -45,6 +45,7 @@ class ThemeStore {
 	resolved = $state<ResolvedTheme>('dark');
 
 	#mql: MediaQueryList | null = null;
+	#initialized = false;
 	#onSystemChange = () => {
 		// Only the 'system' preference cares about OS changes.
 		if (this.mode === 'system') this.#apply();
@@ -56,6 +57,10 @@ class ThemeStore {
 	 * no-op (beyond reading the default) outside the browser. Idempotent.
 	 */
 	init() {
+		// Truly idempotent: a second init() (HMR, layout remount) must not clobber
+		// an in-memory preference that failed to persist.
+		if (this.#initialized) return;
+		this.#initialized = true;
 		this.mode = readStoredMode();
 		if (!isBrowser()) {
 			this.resolved = 'dark';
