@@ -23,6 +23,14 @@
       "csp": null
     }
   },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/billyribeiro-ux/intraday-x/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDE5ODE0QTc2QzBCNkMwODgKUldTSXdMYkFka3FCR1lkdVhUNVZUNi9iOEl0MVB3SHc4VnJTbTdybjF2QmxxWkJ3anVTVEMzMGYK"
+    }
+  },
   "bundle": {
     "active": true,
     "targets": ["app", "dmg"],

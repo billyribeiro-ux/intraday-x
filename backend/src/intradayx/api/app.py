@@ -108,7 +108,16 @@ async def _stream_lifespan(settings: Settings) -> AsyncIterator[None]:
 app = FastAPI(title="intraday-x", version="0.0.1", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    # Dev (browser / `tauri dev`) uses the Vite origin; the BUNDLED Tauri app's
+    # webview uses tauri://localhost (macOS/Linux) or http://tauri.localhost
+    # (Windows). Without the latter, the packaged app's REST fetch() is CORS-blocked
+    # (the WebSocket isn't, which is why live signals connect but /api calls fail).
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "tauri://localhost",
+        "http://tauri.localhost",
+    ],
     allow_methods=["*"],
     allow_headers=["*"],
 )
