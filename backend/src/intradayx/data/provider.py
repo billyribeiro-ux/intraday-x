@@ -12,7 +12,7 @@ overrides what it genuinely supports, and the rest of the system can gate on
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from enum import StrEnum
 
 from intradayx.domain.bars import BarSet, Timeframe
@@ -127,5 +127,10 @@ class DataProvider(ABC):
         if window is None:
             return
         limit = now - window
-        if start < limit:
+        # 1-day grace: a request AT the vendor's exact lookback boundary must not
+        # fail just because seconds elapsed between when `start` was computed and
+        # `now` here (e.g. a 60-day 5m request when yfinance offers exactly 60 days).
+        # The vendor clamps to whatever it actually has; only genuinely-too-old
+        # starts are rejected.
+        if start < limit - timedelta(days=1):
             raise LookbackExceededError(self.name, timeframe, start, limit)
