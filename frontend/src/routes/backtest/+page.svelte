@@ -38,10 +38,10 @@
 		}
 	}
 
-	// --- Client-side CSV export of the trades ----------------------------------
-	// NOTE: server-side PDF export needs a dedicated backend endpoint (e.g.
-	// POST /api/backtest/report) — that is DEFERRED and intentionally NOT faked
-	// here. The PDF button below is disabled with a tooltip explaining why.
+	// --- Exports ---------------------------------------------------------------
+	// CSV: built client-side from the trades (below). PDF: the native print dialog
+	// (window.print → "Save as PDF") — no backend/reportlab dependency, works in
+	// the bundled webview.
 
 	function csvCell(v: string | number): string {
 		const s = String(v);
@@ -154,8 +154,8 @@
 					<button
 						class="ghost"
 						type="button"
-						disabled
-						title="Server-side PDF export needs a backend endpoint (deferred)."
+						onclick={() => window.print()}
+						title="Open the print dialog → Save as PDF"
 					>
 						<FilePdfIcon size={15} weight="bold" />
 						Export PDF

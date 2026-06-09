@@ -11,11 +11,13 @@ and internals/options route to whichever vendor declares them.
 from __future__ import annotations
 
 import logging
+import threading
 from datetime import UTC, date, datetime, timedelta
 
 import polars as pl
 
 from intradayx.data.provider import DataError, DataProvider, LookbackExceededError, Session
+from intradayx.data.resilience import TransientError
 from intradayx.domain.bars import BAR_SCHEMA, BarSet, Timeframe
 from intradayx.domain.capabilities import (
     Capability,
@@ -50,6 +52,11 @@ class CompositeProvider(DataProvider):
             raise ValueError("CompositeProvider needs at least one provider")
         # Sort by priority (ascending = preferred first).
         self._providers = [p for p, _ in sorted(providers, key=lambda x: x[1])]
+        # Serialize vendor fetches: free tiers (yfinance/Yahoo, Twelve Data 8/min)
+        # throttle hard under concurrency, and the background poller + a backtest
+        # would otherwise hammer them at once → 429. Held only by worker threads
+        # (sync routes + the poller's asyncio.to_thread), never the event loop.
+        self._lock = threading.Lock()
 
     def capabilities(self) -> ProviderCapabilities:
         supported: set[Capability] = set()
@@ -84,32 +91,43 @@ class CompositeProvider(DataProvider):
         cap = required_capability(timeframe)
         now = now or datetime.now(tz=UTC)
         attempted = False
-        for prov in self._providers_for(cap):
-            window = prov.capabilities().lookback_for(timeframe)
-            if timeframe.is_intraday and window is not None and start < now - window:
-                continue  # this vendor can't reach that far back; try the next
-            attempted = True
-            try:
-                bs = prov.bars(ticker, start, end, timeframe, session=session, adjust=adjust)
-            except (CapabilityError, LookbackExceededError, DataError):
-                continue
-            if not bs.is_empty():
-                logger.debug(
-                    "bars %s %s [%s..%s] served by %s (%d rows)",
-                    ticker,
-                    timeframe.value,
-                    start.date(),
-                    end.date(),
-                    prov.name,
-                    len(bs),
-                )
-                return bs
+        last_error: Exception | None = None
+        # Serialize so the poller + a backtest don't hammer a free-tier vendor at
+        # once. A vendor that errors (incl. a 429 TransientError) falls through to
+        # the next — so a rate-limited Twelve Data degrades to yfinance instead of
+        # crashing the request.
+        with self._lock:
+            for prov in self._providers_for(cap):
+                window = prov.capabilities().lookback_for(timeframe)
+                if timeframe.is_intraday and window is not None and start < now - window:
+                    continue  # this vendor can't reach that far back; try the next
+                attempted = True
+                try:
+                    bs = prov.bars(ticker, start, end, timeframe, session=session, adjust=adjust)
+                except (CapabilityError, LookbackExceededError, DataError, TransientError) as exc:
+                    last_error = exc
+                    continue
+                if not bs.is_empty():
+                    logger.debug(
+                        "bars %s %s [%s..%s] served by %s (%d rows)",
+                        ticker,
+                        timeframe.value,
+                        start.date(),
+                        end.date(),
+                        prov.name,
+                        len(bs),
+                    )
+                    return bs
         if not attempted:
             raise DataError(
                 f"no registered provider can serve {timeframe.value} bars for {ticker} "
                 f"from {start:%Y-%m-%d} (need capability {cap.value!r} within lookback)"
             )
-        # Every capable provider returned empty — honest empty, not an error.
+        if last_error is not None:
+            # Every capable provider FAILED (e.g. all rate-limited) — surface a clean
+            # DataError so the API returns a 503 with a message, not an opaque 500.
+            raise DataError(f"all providers failed for {ticker} {timeframe.value}: {last_error}")
+        # Every capable provider returned honest-empty — not an error.
         return _empty_barset(ticker, timeframe)
 
     def internals(
