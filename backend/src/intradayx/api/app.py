@@ -14,13 +14,16 @@ import os
 from collections.abc import AsyncIterator
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from fastapi import FastAPI, Response, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from intradayx.api import metrics
 from intradayx.api.routes import analysis, market, settings
 from intradayx.api.ws import ConnectionManager, SignalPoller, signal_message, status_message
 from intradayx.config import Settings, get_settings
+from intradayx.data.provider import DataError
+from intradayx.data.resilience import TransientError
 
 logger = logging.getLogger(__name__)
 
@@ -108,13 +111,42 @@ async def _stream_lifespan(settings: Settings) -> AsyncIterator[None]:
 app = FastAPI(title="intraday-x", version="0.0.1", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    # Dev (browser / `tauri dev`) uses the Vite origin; the BUNDLED Tauri app's
+    # webview uses tauri://localhost (macOS/Linux) or http://tauri.localhost
+    # (Windows). Without the latter, the packaged app's REST fetch() is CORS-blocked
+    # (the WebSocket isn't, which is why live signals connect but /api calls fail).
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "tauri://localhost",
+        "http://tauri.localhost",
+    ],
     allow_methods=["*"],
     allow_headers=["*"],
 )
 app.include_router(market.router)
 app.include_router(analysis.router)
 app.include_router(settings.router)
+
+
+# Provider failures become 503s with a readable message — NOT unhandled 500s.
+# (An unhandled 500 is raised above the CORS middleware, so it ships with no
+# Access-Control-Allow-Origin and the webview only sees an opaque "Load failed".
+# A handled response goes back through CORS and the UI can show the reason.)
+@app.exception_handler(TransientError)
+async def _transient_error_handler(_request: Request, exc: TransientError) -> JSONResponse:
+    return JSONResponse(
+        status_code=503,
+        content={"detail": f"Data vendor rate-limited — retry shortly ({exc})."},
+    )
+
+
+@app.exception_handler(DataError)
+async def _data_error_handler(_request: Request, exc: DataError) -> JSONResponse:
+    return JSONResponse(
+        status_code=503,
+        content={"detail": f"Data temporarily unavailable ({exc})."},
+    )
 
 
 @app.get("/healthz", tags=["health"])

@@ -63,8 +63,14 @@ mkdir -p "${DEST_DIR}"
 cp -R "dist/${SIDECAR_NAME}" "${ENGINE_DIR}"
 chmod +x "${ENGINE_DIR}/${SIDECAR_NAME}"
 
-# 4. Report.
-echo "==> [4/4] done"
+# 4. Restore the full dev environment. The api-only `uv sync` in step 1 trims
+#    ml/export OUT of the project venv, which then breaks `pytest`/`mypy`/`intradayx
+#    learn` until re-synced. The already-built binary is unaffected.
+echo "==> [4/5] restoring dev venv (ml + export)"
+uv sync --extra api --extra ml --extra export >/dev/null 2>&1 || true
+
+# 5. Report.
+echo "==> [5/5] done"
 SIZE="$(du -sh "${ENGINE_DIR}" | cut -f1)"
 echo "✅ engine (onedir) at src-tauri/binaries/engine/ (${SIZE}); inner exe: engine/${SIDECAR_NAME}"
 echo "   Next: cd ../ && pnpm tauri build"

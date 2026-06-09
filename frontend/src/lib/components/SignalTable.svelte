@@ -8,12 +8,23 @@
 
 	let { signals }: Props = $props();
 
-	function fmtTime(iso: string): string {
-		return new Date(iso).toLocaleString(undefined, {
+	// Market date (ET) — US equities trade on America/New_York.
+	function fmtDate(iso: string): string {
+		return new Date(iso).toLocaleDateString('en-US', {
+			timeZone: 'America/New_York',
 			month: 'short',
-			day: '2-digit',
+			day: '2-digit'
+		});
+	}
+
+	// EXACT clock time of the signal, in market time (ET) — not a coarse bucket.
+	function fmtTime(iso: string): string {
+		return new Date(iso).toLocaleTimeString('en-US', {
+			timeZone: 'America/New_York',
 			hour: '2-digit',
-			minute: '2-digit'
+			minute: '2-digit',
+			second: '2-digit',
+			hour12: true
 		});
 	}
 </script>
@@ -22,12 +33,12 @@
 	<table>
 		<thead>
 			<tr>
-				<th>Time</th>
+				<th>Date</th>
 				<th>Ticker</th>
 				<th>Kind</th>
 				<th>Side</th>
 				<th class="num">Conf</th>
-				<th>Time-of-day</th>
+				<th>Time (ET)</th>
 				<th>Why</th>
 			</tr>
 		</thead>
@@ -38,7 +49,7 @@
 				{#each signals as s (s.signal_id)}
 					{@const dir = uiDirection(s.side)}
 					<tr>
-						<td class="mono">{fmtTime(s.ts)}</td>
+						<td class="mono">{fmtDate(s.ts)}</td>
 						<td class="mono">{s.symbol}</td>
 						<td>{s.kind.replace('reversal_', '')}</td>
 						<td class="side {dir}">
@@ -50,7 +61,7 @@
 							{s.side}
 						</td>
 						<td class="num">{s.confidence.toFixed(2)}</td>
-						<td>{s.time_of_day_bucket}</td>
+						<td class="mono">{fmtTime(s.ts)}</td>
 						<td class="why">{s.attribution.summary}</td>
 					</tr>
 				{/each}
