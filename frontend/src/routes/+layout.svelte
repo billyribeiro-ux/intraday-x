@@ -66,7 +66,7 @@
 	.app {
 		display: flex;
 		flex-direction: column;
-		min-height: 100vh;
+		height: 100vh;
 	}
 	.topbar {
 		display: flex;
@@ -121,9 +121,10 @@
 	}
 	main {
 		flex: 1;
-		padding: 1.25rem;
-		max-width: 1100px;
-		margin: 0 auto;
-		width: 100%;
+		min-width: 0;
+		min-height: 0;
+		display: flex;
+		flex-direction: column;
+		overflow-y: auto; /* full-bleed: fills the window; pages scroll here, no 1100px cap */
 	}
 </style>

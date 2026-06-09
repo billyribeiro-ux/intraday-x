@@ -104,48 +104,79 @@
 			<button onclick={loadData}>Retry</button>
 		</div>
 	{:else if bars}
-		<PriceChart {candles} {volume} {vwap} {markers} levels={bars.levels} />
+		<div class="chart-area">
+			<PriceChart {candles} {volume} {vwap} {markers} levels={bars.levels} />
+		</div>
 
-		<h2>Signals ({signals.length})</h2>
-		<SignalTable {signals} />
-
-		{#if signals.length > 0}
-			<p class="caveat">{signals[0].attribution.caveat}</p>
-		{/if}
+		<div class="signals-area">
+			<h2>Signals ({signals.length})</h2>
+			<div class="signals-scroll">
+				<SignalTable {signals} />
+			</div>
+			{#if signals.length > 0}
+				<p class="caveat">{signals[0].attribution.caveat}</p>
+			{/if}
+		</div>
 	{/if}
 </section>
 
 <style>
 	.monitor {
+		flex: 1;
+		min-height: 0;
 		display: flex;
 		flex-direction: column;
-		gap: 1rem;
+		gap: 0.75rem;
+		padding: 1rem 1.25rem;
 	}
 	.monitor-head {
+		flex: 0 0 auto;
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
 	}
+	/* Chart grows to fill most of the window; the signals panel scrolls below it. */
+	.chart-area {
+		flex: 1 1 58%;
+		min-height: 260px;
+	}
+	.signals-area {
+		flex: 1 1 42%;
+		min-height: 150px;
+		display: flex;
+		flex-direction: column;
+		gap: 0.4rem;
+	}
+	.signals-scroll {
+		flex: 1;
+		min-height: 0;
+		overflow-y: auto;
+		border: 1px solid var(--border);
+		border-radius: 8px;
+	}
 	h2 {
+		flex: 0 0 auto;
 		font-size: 0.9rem;
 		color: var(--muted);
 		margin: 0.25rem 0 0;
 		font-weight: 600;
 	}
 	.caveat {
+		flex: 0 0 auto;
 		color: #6e7681;
 		font-size: 0.78rem;
 		font-style: italic;
 		margin: 0;
 	}
-	/* Fixed-height placeholder so first paint doesn't shift when data arrives. */
+	/* Fills the whole content area (centered) while loading / on error. */
 	.placeholder {
+		flex: 1;
+		min-height: 0;
 		display: flex;
 		flex-direction: column;
 		align-items: center;
 		justify-content: center;
 		gap: 0.5rem;
-		min-height: 420px;
 		border: 1px solid var(--border);
 		border-radius: 10px;
 		background: var(--panel);
