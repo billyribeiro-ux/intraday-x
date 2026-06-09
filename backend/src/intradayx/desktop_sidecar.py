@@ -3,9 +3,10 @@
 The Tauri shell (``src-tauri/``) spawns this as an external binary and reads its
 stdout. The handshake (see the contract in ``src-tauri/src/lib.rs``):
 
-* Bind uvicorn to an OS-assigned free port on 127.0.0.1.
-* Print exactly one line ``INTRADAYX_READY <port>`` and flush — BEFORE the server
-  blocks — so the Rust supervisor learns the port and points the webview at it.
+* Bind AND ``listen()`` on an OS-assigned free 127.0.0.1 port, THEN print exactly
+  one line ``INTRADAYX_READY <port>`` and flush — so the port is already accepting
+  connections the instant the Rust supervisor points the webview at it (announcing
+  before uvicorn bound caused the first /api request to be refused → a manual retry).
 * On a fatal startup error, print ``INTRADAYX_FATAL <message>`` and exit non-zero
   so the supervisor can surface it instead of hanging on a dead backend.
 
@@ -18,17 +19,6 @@ from __future__ import annotations
 
 import socket
 import sys
-
-
-def _free_port() -> int:
-    """Ask the OS for a free 127.0.0.1 port, then release it for uvicorn to bind.
-
-    The reuse window is a negligible race on loopback for a single-user desktop
-    app; if uvicorn fails to bind it we fail loud via the FATAL handshake below.
-    """
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind(("127.0.0.1", 0))
-        return int(sock.getsockname()[1])
 
 
 def _start_orphan_watchdog() -> None:
@@ -57,19 +47,30 @@ def main() -> None:
         from intradayx.api.app import app
         from intradayx.config import get_settings
 
-        port = _free_port()
-        # Handshake FIRST: the Rust supervisor blocks on this exact line.
+        settings = get_settings()
+
+        # Bind AND listen() BEFORE announcing, so the port is already accepting
+        # connections when we print READY. The kernel queues any connection that
+        # arrives before uvicorn's accept loop is up (in the listen backlog) and
+        # serves it once startup completes — instead of refusing it, which is what
+        # forced the "couldn't reach the engine → click Retry" first-load failure.
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.bind(("127.0.0.1", 0))
+        sock.listen(128)
+        port = int(sock.getsockname()[1])
+
         print(f"INTRADAYX_READY {port}", flush=True)
         _start_orphan_watchdog()
 
-        settings = get_settings()
-        uvicorn.run(
+        config = uvicorn.Config(
             app,
             host="127.0.0.1",
             port=port,
             log_level=settings.log_level.lower(),
             access_log=False,
         )
+        uvicorn.Server(config).run(sockets=[sock])
     except Exception as exc:  # fail loud to the supervisor, never hang on a dead backend
         print(f"INTRADAYX_FATAL {exc}", flush=True)
         sys.exit(1)
