@@ -99,11 +99,23 @@ class CompositeProvider(DataProvider):
         with self._lock:
             for prov in self._providers_for(cap):
                 window = prov.capabilities().lookback_for(timeframe)
-                if timeframe.is_intraday and window is not None and start < now - window:
-                    continue  # this vendor can't reach that far back; try the next
+                prov_start = start
+                if timeframe.is_intraday and window is not None:
+                    # The oldest this vendor reliably serves — a 1-day buffer INSIDE
+                    # the window, because vendors (yfinance/Yahoo) reject a request at
+                    # the exact edge ("must be within the last 60 days").
+                    earliest = now - window + timedelta(days=1)
+                    if start < earliest:
+                        # CLAMP to the serviceable range rather than skip. For a
+                        # last-resort vendor (yfinance — the only one without a key)
+                        # skipping means NO data at all; clamping returns the history
+                        # it does have (slightly less than requested).
+                        prov_start = earliest
                 attempted = True
                 try:
-                    bs = prov.bars(ticker, start, end, timeframe, session=session, adjust=adjust)
+                    bs = prov.bars(
+                        ticker, prov_start, end, timeframe, session=session, adjust=adjust
+                    )
                 except (CapabilityError, LookbackExceededError, DataError, TransientError) as exc:
                     last_error = exc
                     continue
