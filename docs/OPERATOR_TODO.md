@@ -37,6 +37,7 @@ history add a free, non-broker vendor:
 |---|---|---|
 | **Twelve Data** | 1-min bars back to 2020 (the backtest backbone) | `TWELVEDATA_API_KEY` in `backend/.env` |
 | Polygon (optional) | another data vendor | `POLYGON_API_KEY` in `backend/.env` |
+| FMP (optional) | daily-to-IPO + intraday data vendor (~250 req/day free) | `FMP_API_KEY` in `backend/.env` |
 
 You can also set/clear these **in the app** — Settings → API keys (no terminal,
 no `.env` editing). **No brokers** — we use data vendors only.

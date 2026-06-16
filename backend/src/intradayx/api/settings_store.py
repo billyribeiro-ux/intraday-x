@@ -35,6 +35,7 @@ _FILENAME = "settings.json"
 VENDOR_ENV_VARS: dict[str, str] = {
     "twelvedata": "TWELVEDATA_API_KEY",
     "polygon": "POLYGON_API_KEY",
+    "fmp": "FMP_API_KEY",
 }
 
 VALID_THEMES = ("dark", "light", "system")

@@ -43,6 +43,7 @@ Legend: ✅ supported · ⚠️ partial / shallow / caveated · ❌ not availabl
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
 | **yfinance** | ✅ → IPO | ⚠️ ~7d | ❌ | ✅ | ❌ | ❌ | ✅ live only | ❌ | ❌ | ❌ | ⚠️ poll | Free (unofficial) |
 | **Twelve Data (free)** | ✅ multi-yr | ✅ since 2020-02 | ✅ multi-yr 1m/5m | ✅ | ❌ | ⚠️ some indices | ❌ | ❌ | ❌ | ❌ | ⚠️ poll (WS paid) | Free (key, non-broker) |
+| **FMP (free)** | ✅ → IPO | ✅ | ⚠️ free shallow / paid deep | ❌ RTH | ❌ | ❌ | ⚠️ (not wired) | ❌ | ❌ | ❌ | ❌ | Free (key, non-broker) |
 | **Polygon / "Massive"** | ✅ | ✅ ~10yr | ⚠️ index floors ~Mar 2023 | ✅ | ⚠️ unconfirmed | ✅ incl. VIX | ✅ | ⚠️ | ❌ | ❌ | ✅ | 💲 ~$79+/mo (unverified) |
 | **Databento** | ✅ | ✅ | ✅ 15+yr | ✅ | ❌ no index/internals | ❌ | ✅ OPRA | ⚠️ own greeks | ❌ | ❌ | ✅ | 💲 pay-as-you-go / GB |
 | **Schwab / thinkorSwim** | ✅ | ⚠️ ~30–48d | ❌ | ✅ | ✅ realtime only ($TICK/$TRIN/$VOLD) | ✅ realtime | ✅ | ❌ | ❌ | ❌ | ✅ realtime | Free (w/ account) |
@@ -86,6 +87,25 @@ Legend: ✅ supported · ⚠️ partial / shallow / caveated · ❌ not availabl
   `INTRADAY_BARS_1M`, `INTRADAY_BARS_5M`, `EXTENDED_HISTORY_INTRADAY`,
   `PREPOST_MARKET`. (Live WebSocket streaming is a paid Twelve Data feature; the
   free tier is REST poll.)
+
+### Financial Modeling Prep (FMP, free, non-broker)
+
+- **History:** daily OHLCV back to IPO plus intraday 1m/5m/15m/30m/1h. A pure
+  data vendor, **not a broker**. Free tier needs only an API key (no card).
+- **Credentials:** `FMP_API_KEY` (free at financialmodelingprep.com).
+  `capabilities()` works without a key; `bars()` raises
+  `MissingCredentialsError` so a missing key fails loud.
+- **Free-tier limits:** ~250 requests/day; free intraday history is shallow
+  (paid tiers go multi-year). The read-through cache
+  (`INTRADAYX_CACHE_ENABLED=true`) helps stay under the daily quota.
+- **Endpoints:** v3 `/historical-chart/{interval}/{symbol}` (intraday) and
+  `/historical-price-full/{symbol}` (daily), both with `from`/`to`. FMP stamps
+  bars in US-Eastern wall-clock; the provider converts to UTC.
+- **Capabilities declared** (`providers/fmp_provider.py`): `DAILY_BARS`,
+  `INTRADAY_BARS_1M`, `INTRADAY_BARS_5M`, `EXTENDED_HISTORY_INTRADAY`. Pre/post,
+  internals, and options are **not** advertised (RTH bars only here — no
+  fabrication). Written from FMP's published API shape; **verify once you add a
+  key** (as with Polygon).
 
 ### Polygon.io / "Massive"
 

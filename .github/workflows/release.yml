@@ -21,6 +21,15 @@ on:
   push:
     tags:
       - 'v*'
+  # Manual trigger: lets the macOS build be cut from the Actions UI/API when a
+  # direct tag push isn't available. tauri-action creates the tag + release at
+  # the checked-out commit using the `tag` input below.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to create (e.g. v0.0.2)'
+        required: true
+        default: 'v0.0.2'
 
 permissions:
   contents: write
@@ -75,8 +84,10 @@ jobs:
           # Repo root holds src-tauri/; tauri.conf.json's beforeBuildCommand
           # builds the frontend.
           projectPath: .
-          tagName: ${{ github.ref_name }}
-          releaseName: 'intraday-x ${{ github.ref_name }}'
+          # On a tag push, github.ref_name is the tag; on manual dispatch, use
+          # the `tag` input so the release still gets a real version tag.
+          tagName: ${{ github.event.inputs.tag || github.ref_name }}
+          releaseName: 'intraday-x ${{ github.event.inputs.tag || github.ref_name }}'
           releaseBody: 'See the assets below to download and install this version.'
           releaseDraft: true
           prerelease: false
