@@ -39,9 +39,10 @@ class Settings(BaseSettings):
     # vendors whose credentials are absent are skipped; yfinance is the floor.
     # Default is free, NON-BROKER data vendors only: Twelve Data (free key,
     # multi-year 1m since 2020) preferred for depth, yfinance (no key) as the
-    # zero-setup floor. Polygon (pure data vendor) is preferred if its key is set.
+    # zero-setup floor. Polygon and FMP (pure data vendors) are preferred if their
+    # keys are set; unconfigured ones are skipped, so the floor stays yfinance.
     # No brokers — add new data vendors via register_provider + INTRADAYX_PROVIDERS.
-    providers: list[str] = ["polygon", "twelvedata", "yfinance"]
+    providers: list[str] = ["polygon", "twelvedata", "fmp", "yfinance"]
 
     # Live monitor.
     watched_symbols: list[str] = ["AAPL", "SPY"]
