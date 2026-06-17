@@ -1,16 +1,5 @@
 <script lang="ts">
-	import {
-		AreaSeries,
-		ColorType,
-		createChart,
-		LineSeries,
-		type AreaData,
-		type IChartApi,
-		type ISeriesApi,
-		type LineData,
-		type UTCTimestamp
-	} from 'lightweight-charts';
-
+	import * as echarts from 'echarts';
 	import type { EquityPoint } from '$lib/api/backtest';
 
 	interface Props {
@@ -21,39 +10,12 @@
 
 	let { curve, height = 280 }: Props = $props();
 
-	// equity_curve is already cumulative on the backend, so we plot it directly
-	// (no trades fallback needed). We divide cents -> dollars at the chart
-	// boundary for a readable axis; the raw cents stay intact in the data model.
-	const equityArea = $derived<AreaData<UTCTimestamp>[]>(
-		curve.map((p) => ({
-			time: Math.floor(new Date(p.ts).getTime() / 1000) as UTCTimestamp,
-			value: p.equity_cents / 100
-		}))
-	);
-
-	// Underwater (drawdown) = equity minus its running peak, in dollars (<= 0).
-	const underwater = $derived.by<LineData<UTCTimestamp>[]>(() => {
-		let peak = -Infinity;
-		return curve.map((p) => {
-			peak = Math.max(peak, p.equity_cents);
-			return {
-				time: Math.floor(new Date(p.ts).getTime() / 1000) as UTCTimestamp,
-				value: (p.equity_cents - peak) / 100
-			};
-		});
-	});
-
 	let container = $state<HTMLDivElement>();
 	let ddContainer = $state<HTMLDivElement>();
+	let chart: echarts.ECharts | undefined;
+	let ddChart: echarts.ECharts | undefined;
 
-	let chart: IChartApi | undefined;
-	let equitySeries: ISeriesApi<'Area'> | undefined;
-	let ddChart: IChartApi | undefined;
-	let ddSeries: ISeriesApi<'Line'> | undefined;
-
-	// Theme-following chart colors read from the CSS vars on the document root, so
-	// the chart matches light/dark without hardcoding palette values here.
-	function chartColors() {
+	function colors() {
 		const cs = getComputedStyle(document.documentElement);
 		return {
 			text: cs.getPropertyValue('--muted').trim() || '#8b949e',
@@ -62,72 +24,97 @@
 		};
 	}
 
-	// Equity chart: create once + teardown.
+	const equityData = $derived<[number, number][]>(
+		curve.map((p) => [new Date(p.ts).getTime(), p.equity_cents / 100])
+	);
+
+	const drawdownData = $derived.by<[number, number][]>(() => {
+		let peak = -Infinity;
+		return curve.map((p) => {
+			peak = Math.max(peak, p.equity_cents);
+			return [new Date(p.ts).getTime(), (p.equity_cents - peak) / 100];
+		});
+	});
+
+	function baseOption(data: [number, number][], color: string, area: boolean): echarts.EChartsCoreOption {
+		const col = colors();
+		return {
+			animation: false,
+			grid: { left: 56, right: 16, top: 16, bottom: 40 },
+			xAxis: {
+				type: 'time',
+				axisLine: { lineStyle: { color: col.grid } },
+				splitLine: { show: true, lineStyle: { color: col.grid } },
+				axisLabel: { color: col.text }
+			},
+			yAxis: {
+				type: 'value',
+				axisLine: { lineStyle: { color: col.grid } },
+				splitLine: { show: true, lineStyle: { color: col.grid } },
+				axisLabel: { color: col.text }
+			},
+			dataZoom: [{ type: 'inside' }],
+			tooltip: {
+				trigger: 'axis',
+				backgroundColor: '#161b22',
+				borderColor: col.grid,
+				textStyle: { color: col.text }
+			},
+			series: [
+				{
+					type: 'line',
+					data,
+					showSymbol: false,
+					lineStyle: { color, width: 2 },
+					areaStyle: area
+						? {
+								color: new (echarts as any).graphic.LinearGradient(0, 0, 0, 1, [
+									{ offset: 0, color },
+									{ offset: 1, color: 'rgba(0,0,0,0)' }
+								])
+					  }
+					: undefined,
+					animation: false
+				}
+			]
+		};
+	}
+
 	$effect(() => {
 		if (!container) return;
-		const col = chartColors();
-		const c = createChart(container, {
-			autoSize: true,
-			layout: {
-				background: { type: ColorType.Solid, color: 'transparent' },
-				textColor: col.text,
-				attributionLogo: true
-			},
-			grid: { vertLines: { color: col.grid }, horzLines: { color: col.grid } },
-			timeScale: { timeVisible: true, secondsVisible: false, borderColor: col.grid },
-			rightPriceScale: { borderColor: col.grid }
-		});
-		equitySeries = c.addSeries(AreaSeries, {
-			lineColor: col.accent,
-			topColor: 'rgba(88,166,255,0.30)',
-			bottomColor: 'rgba(88,166,255,0.02)',
-			lineWidth: 2,
-			priceFormat: { type: 'price', precision: 2, minMove: 0.01 }
-		});
+		const c = echarts.init(container, undefined, { renderer: 'canvas' });
 		chart = c;
+		const observer = new ResizeObserver(() => c.resize());
+		observer.observe(container);
 		return () => {
-			c.remove();
-			chart = equitySeries = undefined;
+			observer.disconnect();
+			c.dispose();
+			chart = undefined;
 		};
 	});
 
-	// Drawdown chart: create once + teardown.
 	$effect(() => {
 		if (!ddContainer) return;
-		const col = chartColors();
-		const c = createChart(ddContainer, {
-			autoSize: true,
-			layout: {
-				background: { type: ColorType.Solid, color: 'transparent' },
-				textColor: col.text,
-				attributionLogo: false
-			},
-			grid: { vertLines: { color: col.grid }, horzLines: { color: col.grid } },
-			timeScale: { timeVisible: true, secondsVisible: false, borderColor: col.grid },
-			rightPriceScale: { borderColor: col.grid }
-		});
-		ddSeries = c.addSeries(LineSeries, {
-			color: '#f85149',
-			lineWidth: 1,
-			priceFormat: { type: 'price', precision: 2, minMove: 0.01 }
-		});
+		const c = echarts.init(ddContainer, undefined, { renderer: 'canvas' });
 		ddChart = c;
+		const observer = new ResizeObserver(() => c.resize());
+		observer.observe(ddContainer);
 		return () => {
-			c.remove();
-			ddChart = ddSeries = undefined;
+			observer.disconnect();
+			c.dispose();
+			ddChart = undefined;
 		};
 	});
 
-	// Push data (re-runs when the derived arrays change; never recreates a chart).
 	$effect(() => {
-		if (!equitySeries || !chart) return;
-		equitySeries.setData(equityArea);
-		chart.timeScale().fitContent();
+		if (!chart || equityData.length === 0) return;
+		const col = colors();
+		chart.setOption(baseOption(equityData, col.accent, true), true);
 	});
+
 	$effect(() => {
-		if (!ddSeries || !ddChart) return;
-		ddSeries.setData(underwater);
-		ddChart.timeScale().fitContent();
+		if (!ddChart || drawdownData.length === 0) return;
+		ddChart.setOption(baseOption(drawdownData, '#f85149', false), true);
 	});
 </script>
 

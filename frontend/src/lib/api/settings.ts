@@ -70,6 +70,23 @@ export async function putSettings(update: SettingsUpdate): Promise<Settings> {
 	return (await res.json()) as Settings;
 }
 
+export async function getVendorKey(vendor: string): Promise<string> {
+	const base = await apiBase();
+	const res = await fetch(`${base}/api/settings/vendor-key/${encodeURIComponent(vendor)}/value`);
+	if (!res.ok) {
+		let detail = '';
+		try {
+			const body = (await res.json()) as { detail?: unknown };
+			if (typeof body.detail === 'string') detail = `: ${body.detail}`;
+		} catch {
+			// ignore
+		}
+		throw new Error(`API /settings/vendor-key/${vendor}/value failed: ${res.status} ${res.statusText}${detail}`);
+	}
+	const data = (await res.json()) as { api_key: string };
+	return data.api_key;
+}
+
 export async function setVendorKey(vendor: string, apiKey: string): Promise<VendorKeyResult> {
 	const base = await apiBase();
 	const res = await fetch(`${base}/api/settings/vendor-key`, {
