@@ -26,6 +26,20 @@ on:
   push:
     tags:
       - 'v*'
+    # Pushing a `release/*` branch cuts a release too — the trigger lives in the
+    # pushed ref's own workflow file, so this needs no tag-push rights and no
+    # `actions: write` dispatch permission. tauri-action creates the tag (derived
+    # from src-tauri/tauri.conf.json's version) + release at the pushed commit.
+    branches:
+      - 'release/**'
+  # Manual trigger: lets the macOS build be cut from the Actions UI/API with a
+  # tag input, in addition to the two push triggers above.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to create (e.g. v0.0.2)'
+        required: true
+        default: 'v0.0.2'
 
 permissions:
   contents: write
@@ -37,6 +51,29 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Resolve release tag
+        id: ver
+        run: |
+          if [ -n "${{ github.event.inputs.tag }}" ]; then
+            tag="${{ github.event.inputs.tag }}"          # manual dispatch
+          elif [ "${{ github.ref_type }}" = "tag" ]; then
+            tag="${{ github.ref_name }}"                  # v* tag push
+          else
+            tag="v$(jq -r .version src-tauri/tauri.conf.json)"  # release/* branch push
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "Resolved release tag: $tag"
+
+      - name: Detect updater signing
+        id: signing
+        run: |
+          if [ -n "${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::TAURI_SIGNING_PRIVATE_KEY not set — building an UNSIGNED app (no auto-update artifacts). Add the signing secrets to emit latest.json."
+          fi
 
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
@@ -85,12 +122,15 @@ jobs:
           # Repo root holds src-tauri/; tauri.conf.json's beforeBuildCommand
           # builds the frontend.
           projectPath: .
-          tagName: ${{ github.ref_name }}
-          releaseName: 'intraday-x ${{ github.ref_name }}'
+          # Tag resolved above (tag push / dispatch input / app version on a
+          # release/* branch push) so the release always gets a real version tag.
+          tagName: ${{ steps.ver.outputs.tag }}
+          releaseName: 'intraday-x ${{ steps.ver.outputs.tag }}'
           releaseBody: 'See the assets below to download and install this version.'
           releaseDraft: true
           prerelease: false
-          # Emit the updater manifest (latest.json) + signatures alongside the
-          # .app/.dmg so the in-app updater can find them.
-          includeUpdaterJson: true
+          # Emit the updater manifest (latest.json) + signatures only when signing
+          # is configured; otherwise the build still produces an installable
+          # (unsigned) .app/.dmg instead of failing.
+          includeUpdaterJson: ${{ steps.signing.outputs.enabled }}
           args: --target aarch64-apple-darwin

@@ -1,25 +1,31 @@
-"""Financial Modeling Prep (FMP) provider — paid non-broker data vendor.
+"""Financial Modeling Prep (FMP) provider — FREE-tier, non-broker OHLCV bars.
 
-FMP offers OHLCV bars via two endpoints:
+FMP (https://financialmodelingprep.com/) is a pure data vendor, NOT a broker. Its
+free tier (API key, no card) gives daily history to IPO plus intraday 1m/5m/…
+bars, which fits the project's "free, non-broker vendors only" rule. Free-tier
+limit: ~250 requests/day. Set ``FMP_API_KEY``; the composite router uses it once
+configured.
 
-* Intraday: ``/api/v3/historical-chart/{interval}/{symbol}``
-  (1min, 5min, 15min, 30min, 1hour, 4hour).
-* Daily: ``/api/v3/historical-price-full/{symbol}``
-  (full daily history).
+Implemented against FMP's documented v3 REST endpoints:
+  - intraday: ``/api/v3/historical-chart/{interval}/{symbol}?from&to``
+  - daily:    ``/api/v3/historical-price-full/{symbol}?from&to``
 
-Set ``FMP_API_KEY`` (paid subscription at https://financialmodelingprep.com/developer/).
+Scope: ``bars()`` only (the stable, well-documented surface). Internals, options,
+earnings, etc. live behind further FMP endpoints — NOT wired here, so
+``capabilities()`` does not advertise them (the system stays honest about what it
+can actually fetch).
 
-Implementation notes:
-* FMP caps each call to roughly 1 000 rows, so we paginate by date windows and
-  stop when we reach the requested start or an empty page.
-* Results are newest-first; each page is reversed before aggregation.
+NOTE: written from FMP's published API shape but not run here (no key in this
+environment) — verify once you add your key, exactly as for the Polygon provider.
 """
 
 from __future__ import annotations
 
 import os
 from datetime import UTC, datetime, timedelta
+from functools import partial
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import httpx
 import polars as pl
@@ -30,48 +36,25 @@ from intradayx.data.provider import (
     MissingCredentialsError,
     Session,
 )
+from intradayx.data.resilience import TransientError, with_retries
 from intradayx.domain.bars import BAR_SCHEMA, BarSet, Timeframe
 from intradayx.domain.capabilities import Capability, ProviderCapabilities
 
 _BASE = "https://financialmodelingprep.com/api/v3"
+_NY = ZoneInfo("America/New_York")  # FMP stamps US-equity bars in exchange-local time
+_DEEP = timedelta(days=1825)  # ~5y; the tier caps what's actually returned
 
-# Generous ceilings — the provider will attempt to fetch this far back for a
-# "MAX" request, paginating until the API stops returning data.
-_INTRADAY_DEEP = timedelta(days=1825)  # ~5 years
-_DAILY_DEEP = timedelta(days=365 * 30)  # ~30 years
-
-# FMP's per-call row cap is ~1 000. We target 800 bars per chunk so the call
-# safely fits, then walk backward until we cover the requested window.
-_CHUNK_BARS_TARGET = 800
-_TRADING_MINUTES_PER_DAY = 390
-
+# Timeframe -> FMP intraday interval token (daily uses a separate endpoint).
 _INTERVAL: dict[Timeframe, str] = {
     Timeframe.M1: "1min",
     Timeframe.M5: "5min",
     Timeframe.M15: "15min",
     Timeframe.M30: "30min",
     Timeframe.H1: "1hour",
-    Timeframe.H4: "4hour",
 }
 
 
-def _parse_dt(value: str) -> datetime:
-    """Parse FMP's ``YYYY-MM-DD HH:MM:SS`` timestamps as UTC."""
-    fmt = "%Y-%m-%d %H:%M:%S"
-    if len(value) == 10:
-        fmt = "%Y-%m-%d"
-    return datetime.strptime(value, fmt).replace(tzinfo=UTC)
-
-
-def _intraday_chunk_delta(timeframe: Timeframe) -> timedelta:
-    """Date-window width for one intraday call so we stay under ~1 000 rows."""
-    minutes_per_bar = int(timeframe.timedelta.total_seconds() // 60)
-    bars_per_day = max(1, _TRADING_MINUTES_PER_DAY // minutes_per_bar)
-    days = max(1, _CHUNK_BARS_TARGET // bars_per_day)
-    return timedelta(days=days)
-
-
-class FmpProvider(DataProvider):
+class FMPProvider(DataProvider):
     name = "fmp"
 
     def __init__(self, api_key: str | None = None) -> None:
@@ -88,18 +71,22 @@ class FmpProvider(DataProvider):
                     Capability.DAILY_BARS,
                     Capability.INTRADAY_BARS_1M,
                     Capability.INTRADAY_BARS_5M,
+                    Capability.EXTENDED_HISTORY_INTRADAY,
                 }
             ),
-            max_intraday_lookback={
-                Timeframe.M1: _INTRADAY_DEEP,
-                Timeframe.M5: _INTRADAY_DEEP,
-                Timeframe.M15: _INTRADAY_DEEP,
-                Timeframe.M30: _INTRADAY_DEEP,
-                Timeframe.H1: _INTRADAY_DEEP,
-                Timeframe.H4: _INTRADAY_DEEP,
-            },
-            rate_limit_hint="paid subscription; per-call cap ~1,000 rows — paginated internally",
+            max_intraday_lookback={tf: _DEEP for tf in (Timeframe.M1, Timeframe.M5, Timeframe.H1)},
+            rate_limit_hint="free tier: ~250 requests/day (no card)",
         )
+
+    @staticmethod
+    def _parse_dt(value: str) -> datetime:
+        """Parse an FMP date (``YYYY-MM-DD`` daily or ``... HH:MM:SS`` intraday).
+
+        FMP stamps bars in US-Eastern wall-clock; we localize to NY then convert
+        to UTC so timestamps line up with every other provider's UTC bars.
+        """
+        fmt = "%Y-%m-%d" if len(value) == 10 else "%Y-%m-%d %H:%M:%S"
+        return datetime.strptime(value, fmt).replace(tzinfo=_NY).astimezone(UTC)
 
     def bars(
         self,
@@ -110,130 +97,68 @@ class FmpProvider(DataProvider):
         *,
         session: Session = Session.RTH,
         adjust: bool = True,
-        now: datetime | None = None,
+        now: datetime | None = None,  # lookback routing is the composite's job
     ) -> BarSet:
         if not self._api_key:
             raise MissingCredentialsError(
                 "FMP needs FMP_API_KEY in the environment "
-                "(paid subscription at financialmodelingprep.com)."
+                "(free, no card, at financialmodelingprep.com)."
             )
-
         symbol = ticker.upper()
-        rows: list[dict[str, Any]]
+        frm = start.astimezone(_NY).strftime("%Y-%m-%d")
+        to = end.astimezone(_NY).strftime("%Y-%m-%d")
+        params = {"from": frm, "to": to, "apikey": self._api_key}
 
         if timeframe == Timeframe.D1:
-            rows = self._daily(symbol, start, end, self._api_key)
+            url = f"{_BASE}/historical-price-full/{symbol}"
         else:
-            rows = self._intraday(symbol, timeframe, start, end, self._api_key)
+            url = f"{_BASE}/historical-chart/{_INTERVAL[timeframe]}/{symbol}"
+
+        timeout = httpx.Timeout(30.0, connect=5.0)  # never hang on a dead handshake
+        retryable = (TransientError, httpx.TransportError, httpx.TimeoutException)
+
+        def _fetch() -> Any:
+            with httpx.Client(timeout=timeout) as client:
+                r = client.get(url, params=params)
+            if r.status_code == 429 or r.status_code >= 500:
+                raise TransientError(f"fmp {r.status_code} (transient)")
+            if r.status_code != 200:
+                raise DataError(f"fmp {r.status_code} for {ticker}: {r.text[:200]}")
+            try:
+                return r.json()
+            except ValueError as exc:  # non-JSON body (CDN/gateway HTML, etc.)
+                raise DataError(
+                    f"fmp non-JSON for {ticker} ({r.status_code}): {r.text[:200]}"
+                ) from exc
+
+        body = with_retries(partial(_fetch), retryable=retryable)
+
+        # FMP error payloads are objects with an "Error Message" key; bar payloads
+        # are a list (intraday) or {"historical": [...]} (daily). Fail loud on the
+        # former so a bad symbol/key never looks like an empty window.
+        if isinstance(body, dict) and "Error Message" in body:
+            raise DataError(f"fmp error for {ticker}: {body['Error Message']}")
+        if timeframe == Timeframe.D1:
+            rows = body.get("historical", []) if isinstance(body, dict) else []
+        else:
+            rows = body if isinstance(body, list) else []
 
         if not rows:
             return BarSet(ticker, timeframe, pl.DataFrame(schema=BAR_SCHEMA))
 
+        # BarSet._coerce dedupes on `ts` (keep='last') and sorts — FMP returns
+        # newest-first, so no hand ordering is needed here.
         frame = pl.DataFrame(
             {
-                "ts": [_parse_dt(r["date"]) for r in rows],
+                "ts": [self._parse_dt(r["date"]) for r in rows],
                 "open": [float(r["open"]) for r in rows],
                 "high": [float(r["high"]) for r in rows],
                 "low": [float(r["low"]) for r in rows],
                 "close": [float(r["close"]) for r in rows],
                 "volume": [int(float(r.get("volume", 0) or 0)) for r in rows],
-                "vwap": [None] * len(rows),
+                "vwap": [r.get("vwap") for r in rows],  # FMP supplies vwap on daily
                 "trades": [None] * len(rows),
                 "source": [self.name] * len(rows),
             }
         )
         return BarSet(ticker, timeframe, frame)
-
-    def _fetch(self, url: str, params: dict[str, str]) -> dict[str, Any] | list[dict[str, Any]]:
-        timeout = httpx.Timeout(30.0, connect=5.0)
-        with httpx.Client(timeout=timeout) as client:
-            r = client.get(url, params=params)
-            if r.status_code != 200:
-                raise DataError(f"fmp {r.status_code}: {r.text[:200]}")
-            body = r.json()
-            # FMP sometimes returns an error object with a message key.
-            if isinstance(body, dict) and "Error Message" in body:
-                raise DataError(f"fmp error: {body['Error Message']}")
-            return body
-
-    def _intraday(
-        self,
-        symbol: str,
-        timeframe: Timeframe,
-        start: datetime,
-        end: datetime,
-        api_key: str,
-    ) -> list[dict[str, Any]]:
-        interval = _INTERVAL[timeframe]
-        chunk_delta = _intraday_chunk_delta(timeframe)
-        collected: list[dict[str, Any]] = []
-        cursor_end = end
-        max_chunks = 500  # safety guard for "MAX" requests
-
-        for _ in range(max_chunks):
-            if cursor_end <= start:
-                break
-            chunk_start = max(start, cursor_end - chunk_delta)
-            rows = self._intraday_page(symbol, interval, chunk_start, cursor_end, api_key)
-            if not rows:
-                # Older data may simply not exist for this plan/symbol.
-                break
-            # API returns newest-first; reverse to oldest-first for this chunk.
-            collected.extend(reversed(rows))
-            # Walk backward; BarSet dedupes any overlapping bar.
-            cursor_end = chunk_start
-
-        return collected
-
-    def _intraday_page(
-        self,
-        symbol: str,
-        interval: str,
-        start: datetime,
-        end: datetime,
-        api_key: str,
-    ) -> list[dict[str, Any]]:
-        url = f"{_BASE}/historical-chart/{interval}/{symbol}"
-        params: dict[str, str] = {
-            "apikey": api_key,
-            "from": start.strftime("%Y-%m-%d"),
-            "to": end.strftime("%Y-%m-%d"),
-        }
-        body = self._fetch(url, params)
-        if not isinstance(body, list):
-            raise DataError(f"fmp unexpected intraday response shape for {symbol}")
-        return body
-
-    def _daily(
-        self, symbol: str, start: datetime, end: datetime, api_key: str
-    ) -> list[dict[str, Any]]:
-        chunk_delta = timedelta(days=365 * 3)  # ~3 years / chunk
-        collected: list[dict[str, Any]] = []
-        cursor_end = end
-        max_chunks = 200
-
-        for _ in range(max_chunks):
-            if cursor_end <= start:
-                break
-            chunk_start = max(start, cursor_end - chunk_delta)
-            rows = self._daily_page(symbol, chunk_start, cursor_end, api_key)
-            if not rows:
-                break
-            collected.extend(reversed(rows))
-            cursor_end = chunk_start
-
-        return collected
-
-    def _daily_page(
-        self, symbol: str, start: datetime, end: datetime, api_key: str
-    ) -> list[dict[str, Any]]:
-        url = f"{_BASE}/historical-price-full/{symbol}"
-        params: dict[str, str] = {
-            "apikey": api_key,
-            "from": start.strftime("%Y-%m-%d"),
-            "to": end.strftime("%Y-%m-%d"),
-        }
-        body = self._fetch(url, params)
-        if not isinstance(body, dict):
-            raise DataError(f"fmp unexpected daily response shape for {symbol}")
-        return body.get("historical") or []
