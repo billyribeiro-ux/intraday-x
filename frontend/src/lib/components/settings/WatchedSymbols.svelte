@@ -126,7 +126,7 @@
 		cursor: pointer;
 		border: 1px solid var(--accent);
 		background: var(--accent);
-		color: #fff;
+		color: var(--accent-contrast);
 		transition: background-color 0.12s ease;
 	}
 	.btn:hover:not(:disabled) {
@@ -164,9 +164,9 @@
 	.msg {
 		margin: 0.6rem 0 0;
 		font-size: 0.8rem;
-		color: #3fb950;
+		color: var(--buy);
 	}
 	.msg.error {
-		color: #f85149;
+		color: var(--sell);
 	}
 </style>

@@ -1,9 +1,9 @@
-"""Settings routes: manage theme, multi-vendor API keys, and scanner defaults.
+"""Settings routes: manage theme, the FMP API key, and scanner defaults.
 
 Lets the desktop Settings screen drive the engine without a terminal or .env
-edit. Keys are persisted (chmod 0o600), pushed into os.environ, and the provider
-is rebuilt so a new key takes effect live. A key value is NEVER echoed back in
-any response.
+edit. The FMP key is persisted (chmod 0o600), pushed into os.environ, and the
+provider cache is cleared so a new key takes effect live. A key value is NEVER
+echoed back in status responses.
 """
 
 from __future__ import annotations
@@ -15,12 +15,12 @@ from pydantic import BaseModel
 
 from intradayx.api import settings_store
 from intradayx.api.settings_store import (
+    ALLOWED_DATA_PROVIDERS,
     VALID_SCANNERS,
     VALID_THEMES,
     VENDOR_ENV_VARS,
     StoredSettings,
 )
-from intradayx.data.registry import registered_names
 
 router = APIRouter(prefix="/api", tags=["settings"])
 
@@ -30,7 +30,7 @@ router = APIRouter(prefix="/api", tags=["settings"])
 
 class VendorStatusDTO(BaseModel):
     name: str
-    env_var: str | None  # None for credential-free vendors (yfinance)
+    env_var: str
     configured: bool
 
 
@@ -92,15 +92,15 @@ def update_settings(req: SettingsUpdateRequest) -> SettingsResponse:
         stored.theme = req.theme
 
     if req.providers is not None:
-        known = set(registered_names())
+        known = set(ALLOWED_DATA_PROVIDERS)
         unknown = [p for p in req.providers if p not in known]
         if unknown:
             raise HTTPException(
                 status_code=400, detail=f"unknown providers: {unknown} (known: {sorted(known)})"
             )
-        if not req.providers:
-            raise HTTPException(status_code=400, detail="providers must not be empty")
-        stored.providers = req.providers
+        if req.providers != list(ALLOWED_DATA_PROVIDERS):
+            raise HTTPException(status_code=400, detail="providers must be ['fmp']")
+        stored.providers = list(ALLOWED_DATA_PROVIDERS)
 
     if req.watched_symbols is not None:
         symbols = [s.strip().upper() for s in req.watched_symbols if s.strip()]

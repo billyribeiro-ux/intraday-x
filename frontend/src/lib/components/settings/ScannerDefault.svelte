@@ -99,7 +99,7 @@
 	}
 	.error {
 		margin: 0.5rem 0 0;
-		color: #f85149;
+		color: var(--sell);
 		font-size: 0.8rem;
 	}
 </style>

@@ -207,7 +207,10 @@
 	.studio {
 		display: flex;
 		flex-direction: column;
-		gap: 1rem;
+		gap: 0.9rem;
+		width: min(100%, 1280px);
+		margin: 0 auto;
+		padding: 1rem;
 	}
 	.head {
 		display: flex;
@@ -223,17 +226,17 @@
 		align-items: center;
 		gap: 0.5rem;
 		padding: 0.7rem 0.9rem;
-		border: 1px solid #f85149;
+		border: 1px solid color-mix(in srgb, var(--sell) 58%, var(--border));
 		border-radius: 8px;
-		background: rgba(248, 81, 73, 0.08);
-		color: #f85149;
+		background: color-mix(in srgb, var(--sell) 10%, var(--panel));
+		color: var(--sell);
 		font-size: 0.85rem;
 	}
 	.banner .dismiss {
 		margin-left: auto;
 		background: none;
 		border: none;
-		color: #f85149;
+		color: var(--sell);
 		font-size: 1.1rem;
 		line-height: 1;
 		cursor: pointer;
@@ -267,7 +270,7 @@
 		gap: 0.35rem;
 		height: 32px;
 		padding: 0 0.7rem;
-		background: var(--panel);
+		background: var(--surface);
 		color: var(--text);
 		border: 1px solid var(--border);
 		border-radius: 6px;
@@ -372,10 +375,10 @@
 		font-variant-numeric: tabular-nums;
 	}
 	.pos {
-		color: #3fb950;
+		color: var(--buy);
 	}
 	.neg {
-		color: #f85149;
+		color: var(--sell);
 	}
 	.empty td {
 		text-align: center;

@@ -175,7 +175,7 @@
 		border-color: var(--accent);
 	}
 	input.invalid {
-		border-color: #f85149;
+		border-color: var(--sell);
 	}
 	input.mono {
 		width: 7rem;
@@ -198,7 +198,7 @@
 		padding: 0 1rem;
 		margin-left: auto;
 		background: var(--accent);
-		color: #fff;
+		color: var(--accent-contrast);
 		border: none;
 		border-radius: 6px;
 		font-size: 0.875rem;

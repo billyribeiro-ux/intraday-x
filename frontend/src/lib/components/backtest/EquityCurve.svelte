@@ -18,9 +18,11 @@
 	function colors() {
 		const cs = getComputedStyle(document.documentElement);
 		return {
+			panel: cs.getPropertyValue('--panel').trim() || '#101318',
 			text: cs.getPropertyValue('--muted').trim() || '#8b949e',
 			grid: cs.getPropertyValue('--border').trim() || '#1b2230',
-			accent: cs.getPropertyValue('--accent').trim() || '#58a6ff'
+			accent: cs.getPropertyValue('--accent').trim() || '#58a6ff',
+			sell: cs.getPropertyValue('--sell').trim() || '#fb7185'
 		};
 	}
 
@@ -56,7 +58,7 @@
 			dataZoom: [{ type: 'inside' }],
 			tooltip: {
 				trigger: 'axis',
-				backgroundColor: '#161b22',
+				backgroundColor: col.panel,
 				borderColor: col.grid,
 				textStyle: { color: col.text }
 			},
@@ -114,7 +116,8 @@
 
 	$effect(() => {
 		if (!ddChart || drawdownData.length === 0) return;
-		ddChart.setOption(baseOption(drawdownData, '#f85149', false), true);
+		const col = colors();
+		ddChart.setOption(baseOption(drawdownData, col.sell, false), true);
 	});
 </script>
 

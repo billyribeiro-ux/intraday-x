@@ -1,11 +1,11 @@
-"""Persistence for desktop-managed settings (theme, vendor keys, scanner defaults).
+"""Persistence for desktop-managed settings (theme, FMP key, scanner defaults).
 
-The desktop app must let the user manage theme, multi-vendor API keys, and
+The desktop app must let the user manage theme, the FMP API key, and
 scanner defaults WITHOUT a terminal or editing ``.env``. This module owns the
 on-disk store (JSON in the OS app-data dir, mode 0o600 because it holds API
-keys), the vendor-name -> env-var mapping, and the two side effects that make a
-key take effect live: pushing keys into ``os.environ`` and rebuilding the
-provider singleton (so no restart is needed).
+keys), the FMP env-var mapping, and the two side effects that make a key take
+effect live: pushing it into ``os.environ`` and clearing the provider singleton
+(so no restart is needed).
 
 NEVER log a key value. The store file is chmod 0o600 on every save.
 """
@@ -21,23 +21,17 @@ from pathlib import Path
 from typing import Any
 
 from intradayx.config import get_settings
-from intradayx.data.registry import registered_names
+from intradayx.data.registry import CANONICAL_PROVIDER
 
 logger = logging.getLogger(__name__)
 
 _APP_ID = "com.intradayx.desktop"
 _FILENAME = "settings.json"
 
-# Vendor name -> the env var its provider reads via os.environ.get(...). yfinance
-# is credential-free (no env var, always configured) so it is intentionally
-# absent. Mirrors the providers' own os.environ lookups; keep in sync if a new
-# keyed vendor is registered. FMP is a paid subscription; the other two have
-# free tiers.
-VENDOR_ENV_VARS: dict[str, str] = {
-    "twelvedata": "TWELVEDATA_API_KEY",
-    "polygon": "POLYGON_API_KEY",
-    "fmp": "FMP_API_KEY",
-}
+# Provider management is intentionally FMP-only. Keep the mapping explicit so a
+# future registered vendor cannot appear in desktop settings by accident.
+VENDOR_ENV_VARS: dict[str, str] = {CANONICAL_PROVIDER: "FMP_API_KEY"}
+ALLOWED_DATA_PROVIDERS = (CANONICAL_PROVIDER,)
 
 VALID_THEMES = ("dark", "light", "system")
 VALID_SCANNERS = ("reversal", "scalping")
@@ -71,7 +65,7 @@ class StoredSettings:
     """
 
     theme: str = "system"
-    providers: list[str] = field(default_factory=lambda: list(get_settings().providers))
+    providers: list[str] = field(default_factory=lambda: [CANONICAL_PROVIDER])
     watched_symbols: list[str] = field(
         default_factory=lambda: list(get_settings().watched_symbols)
     )
@@ -83,7 +77,7 @@ class StoredSettings:
         defaults = cls()
         return cls(
             theme=str(data.get("theme", defaults.theme)),
-            providers=list(data.get("providers", defaults.providers)),
+            providers=[CANONICAL_PROVIDER],
             watched_symbols=list(data.get("watched_symbols", defaults.watched_symbols)),
             default_scanner=str(data.get("default_scanner", defaults.default_scanner)),
             vendor_keys=dict(data.get("vendor_keys", {})),
@@ -121,7 +115,7 @@ def save_settings(stored: StoredSettings) -> None:
 def apply_to_env(stored: StoredSettings) -> None:
     """Push stored settings into os.environ so pydantic-settings picks them up.
 
-    Vendor credentials get their conventional env vars; the provider order and
+    FMP credentials get their conventional env var; the provider order and
     watched symbols are exported as JSON arrays under INTRADAYX_*. Empty values
     clear the var so a deletion really drops it. Never logs key values.
     """
@@ -132,6 +126,7 @@ def apply_to_env(stored: StoredSettings) -> None:
         else:
             os.environ.pop(env_var, None)
 
+    stored.providers = [CANONICAL_PROVIDER]
     os.environ["INTRADAYX_PROVIDERS"] = json.dumps(stored.providers)
     os.environ["INTRADAYX_WATCHED_SYMBOLS"] = json.dumps(stored.watched_symbols)
 
@@ -141,24 +136,27 @@ def rebuild_provider() -> None:
 
     Clears the ``get_settings`` lru_cache (so a changed providers list is re-read)
     and resets the provider singleton in :mod:`intradayx.api.service` (the
-    ``get_provider`` lru_cache), then rebuilds it so the next request gets a
-    CompositeProvider assembled from the current env + settings.
+    ``get_provider`` lru_cache). It rebuilds only when FMP is configured; after
+    clearing the key, the next data request should fail loudly with a missing-key
+    message rather than leaving a stale provider alive.
     """
     from intradayx.api import service
+    from intradayx.data.provider import MissingCredentialsError
     from intradayx.data.registry import build_provider
 
     get_settings.cache_clear()
     service.get_provider.cache_clear()
-    # Eagerly rebuild so a misconfiguration surfaces now, not on the next request.
-    build_provider()
+    try:
+        build_provider()
+    except MissingCredentialsError:
+        logger.info("FMP key is not configured; provider cache cleared")
 
 
 def vendor_is_configured(vendor: str) -> bool:
     """Whether a vendor currently has a usable key.
 
-    Mirrors each provider's ``is_configured()``: a credential-free vendor
-    (no env var, e.g. yfinance) is always configured; a keyed vendor is
-    configured iff its env var is set and non-empty.
+    Mirrors FMPProvider.is_configured(): configured iff FMP_API_KEY is set and
+    non-empty.
     """
     env_var = VENDOR_ENV_VARS.get(vendor)
     if env_var is None:
@@ -167,9 +165,9 @@ def vendor_is_configured(vendor: str) -> bool:
 
 
 def vendor_status() -> list[dict[str, Any]]:
-    """List every registered provider with its env var and configured flag."""
+    """List the canonical FMP provider with its env var and configured flag."""
     out: list[dict[str, Any]] = []
-    for name in registered_names():
+    for name in ALLOWED_DATA_PROVIDERS:
         out.append(
             {
                 "name": name,

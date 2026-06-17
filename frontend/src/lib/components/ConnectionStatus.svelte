@@ -41,15 +41,19 @@
 		display: inline-flex;
 		align-items: center;
 		gap: 0.4rem;
-		font-size: 0.8rem;
-		padding: 0.25rem 0.6rem;
-		border-radius: 999px;
-		border: 1px solid #1b2230;
+		height: 28px;
+		padding: 0 0.6rem;
+		border-radius: 6px;
+		border: 1px solid var(--border);
+		background: var(--surface);
+		font-size: 0.76rem;
+		font-weight: 650;
+		white-space: nowrap;
 	}
 	.connected {
-		color: #3fb950;
+		color: var(--buy);
 	}
 	.down {
-		color: #d29922;
+		color: var(--warn);
 	}
 </style>

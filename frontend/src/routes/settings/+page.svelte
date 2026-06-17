@@ -99,7 +99,7 @@
 		<GearIcon size={22} weight="fill" />
 		<div>
 			<h1>Settings</h1>
-			<p class="sub">Appearance, data vendors, and scanner defaults.</p>
+			<p class="sub">Appearance, FMP data, and scanner defaults.</p>
 		</div>
 	</header>
 
@@ -133,8 +133,8 @@
 				<div class="card-head">
 					<KeyIcon size={18} weight="fill" />
 					<div>
-						<h2>Data vendors</h2>
-						<p class="desc">Free, non-broker market-data sources.</p>
+						<h2>FMP data</h2>
+						<p class="desc">Financial Modeling Prep is the canonical market-data source.</p>
 					</div>
 				</div>
 				<VendorKeys vendors={settings.vendors} onChanged={onVendorsChanged} />
@@ -210,7 +210,10 @@
 	.page {
 		display: flex;
 		flex-direction: column;
-		gap: 1.5rem;
+		gap: 1rem;
+		width: min(100%, 1120px);
+		margin: 0 auto;
+		padding: 1rem;
 	}
 	.page-head {
 		display: flex;
@@ -234,7 +237,7 @@
 	.card {
 		padding: 1.25rem;
 		border: 1px solid var(--border);
-		border-radius: 10px;
+		border-radius: 8px;
 		background: var(--panel);
 	}
 	.card-head {
@@ -364,7 +367,7 @@
 		text-align: right;
 	}
 	.update-status.is-error {
-		color: #f85149;
+		color: var(--sell);
 	}
 	.state.error {
 		display: flex;
@@ -372,13 +375,13 @@
 		justify-content: space-between;
 		gap: 1rem;
 		padding: 1rem 1.25rem;
-		border: 1px solid color-mix(in srgb, #f85149 45%, var(--border));
-		border-radius: 10px;
-		background: color-mix(in srgb, #f85149 10%, var(--panel));
+		border: 1px solid color-mix(in srgb, var(--sell) 45%, var(--border));
+		border-radius: 8px;
+		background: color-mix(in srgb, var(--sell) 10%, var(--panel));
 	}
 	.state.error p {
 		margin: 0;
-		color: #f85149;
+		color: var(--sell);
 		font-size: 0.85rem;
 	}
 	.retry {

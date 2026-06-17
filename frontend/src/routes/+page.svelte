@@ -8,6 +8,7 @@
 	import { timeframeToSeconds } from '$lib/chart/time';
 	import ConnectionStatus from '$lib/components/ConnectionStatus.svelte';
 	import SignalTable from '$lib/components/SignalTable.svelte';
+	import { ArrowsClockwiseIcon } from '$lib/icons';
 	import { FmpLiveStore, type FmpAssetClass } from '$lib/realtime/fmp-live.svelte';
 	import { SignalStore } from '$lib/realtime/signal-store.svelte';
 
@@ -141,11 +142,11 @@
 
 	// Merge live (newest) + historical for the LOADED symbol, deduped by id.
 	const signals = $derived.by(() => {
-		const seen = new Set<string>();
+		const seen: string[] = [];
 		const out: Signal[] = [];
 		for (const s of [...signalStore.signals, ...(scanResult?.signals ?? [])]) {
-			if (s.symbol === loaded.symbol && !seen.has(s.signal_id)) {
-				seen.add(s.signal_id);
+			if (s.symbol === loaded.symbol && !seen.includes(s.signal_id)) {
+				seen.push(s.signal_id);
 				out.push(s);
 			}
 		}
@@ -174,11 +175,50 @@
 	const candles = $derived(liveCandles);
 	const volume = $derived(bars?.volume ?? []);
 	const vwap = $derived(bars?.vwap ?? []);
+	const studies = $derived(bars?.studies ?? []);
 	const markers = $derived(bars?.markers ?? []);
+
+	const lastClose = $derived(candles.at(-1)?.close ?? null);
+	const completeness = $derived(bars?.data_completeness ?? null);
+
+	function fmtPrice(value: number | null): string {
+		if (value === null) return '--';
+		const precision = value < 1 ? 4 : value < 10 ? 3 : 2;
+		return value.toLocaleString(undefined, {
+			minimumFractionDigits: precision,
+			maximumFractionDigits: precision
+		});
+	}
+
+	function fmtPct(value: number | null): string {
+		return value === null ? '--' : `${Math.round(value * 100)}%`;
+	}
+
+	function fmpLabel(): string {
+		switch (fmpStore.status) {
+			case 'open':
+				return 'FMP live';
+			case 'connecting':
+				return 'FMP connecting';
+			case 'error':
+				return fmpStore.error ?? 'FMP offline';
+			default:
+				return 'FMP idle';
+		}
+	}
 </script>
 
 <section class="monitor">
 	<div class="monitor-head">
+		<div class="instrument">
+			<span class="kicker">Monitor</span>
+			<div class="instrument-row">
+				<h1>{loaded.symbol}</h1>
+				<span class="price">{fmtPrice(lastClose)}</span>
+				<span class="chip">{loaded.timeframe}</span>
+				<span class="chip">Data {fmtPct(completeness)}</span>
+			</div>
+		</div>
 		<form class="picker" onsubmit={onSubmit}>
 			<input
 				class="ticker"
@@ -210,15 +250,18 @@
 					<option value={ac.value}>{ac.label}</option>
 				{/each}
 			</select>
-			<button type="submit" disabled={loadState === 'loading'}>Load</button>
+			<button type="submit" disabled={loadState === 'loading'}>
+				<ArrowsClockwiseIcon size={15} weight="bold" />
+				Load
+			</button>
 		</form>
 		<div class="status-group">
 			{#if fmpStore.status === 'connecting'}
-				<span class="live-dot connecting" title="FMP live feed connecting…"></span>
+				<span class="live-dot connecting" title={fmpLabel()}></span>
 			{:else if fmpStore.status === 'open'}
-				<span class="live-dot" title="FMP live feed connected"></span>
+				<span class="live-dot" title={fmpLabel()}></span>
 			{:else if fmpStore.status === 'error'}
-				<span class="live-dot error" title="FMP live feed: {fmpStore.error ?? 'disconnected'}"></span>
+				<span class="live-dot error" title={fmpLabel()}></span>
 			{/if}
 			<ConnectionStatus state={signalStore.status} source={signalStore.serverStatus?.source} />
 		</div>
@@ -237,18 +280,36 @@
 			<button onclick={() => loadData()}>Retry</button>
 		</div>
 	{:else if bars}
-		<div class="chart-area">
-			<PriceChart {candles} {volume} {vwap} {markers} levels={bars.levels} />
-		</div>
-
-		<div class="signals-area">
-			<h2>{loaded.symbol} · {loaded.timeframe} · {scanner} signals ({signals.length})</h2>
-			<div class="signals-scroll">
-				<SignalTable {signals} />
+		<div class="workbench">
+			<div class="chart-area">
+				<PriceChart
+					{candles}
+					{volume}
+					{vwap}
+					{studies}
+					{markers}
+					levels={bars.levels}
+					symbol={loaded.symbol}
+					timeframe={loaded.timeframe}
+					dataCompleteness={bars.data_completeness}
+				/>
 			</div>
-			{#if signals.length > 0}
-				<p class="caveat">{signals[0].attribution.caveat}</p>
-			{/if}
+
+			<aside class="signals-area">
+				<div class="signals-head">
+					<div>
+						<h2>{scanner} signals</h2>
+						<p>{signals.length} live + historical matches</p>
+					</div>
+					<span class="count">{signals.length}</span>
+				</div>
+				<div class="signals-scroll">
+					<SignalTable {signals} />
+				</div>
+				{#if signals.length > 0}
+					<p class="caveat">{signals[0].attribution.caveat}</p>
+				{/if}
+			</aside>
 		</div>
 	{/if}
 </section>
@@ -257,55 +318,116 @@
 	.monitor {
 		flex: 1;
 		min-height: 0;
-		display: flex;
-		flex-direction: column;
+		display: grid;
+		grid-template-rows: auto minmax(0, 1fr);
 		gap: 0.75rem;
-		padding: 1rem 1.25rem;
+		padding: 0.85rem;
 	}
 	.monitor-head {
-		flex: 0 0 auto;
+		display: grid;
+		grid-template-columns: minmax(230px, auto) minmax(0, 1fr) auto;
+		align-items: center;
+		gap: 0.75rem;
+		padding: 0.7rem;
+		border: 1px solid var(--border);
+		border-radius: 8px;
+		background: var(--panel);
+	}
+	.instrument {
+		min-width: 0;
+	}
+	.kicker {
+		display: block;
+		margin-bottom: 0.2rem;
+		color: var(--muted);
+		font-size: 0.68rem;
+		font-weight: 700;
+		text-transform: uppercase;
+	}
+	.instrument-row {
 		display: flex;
 		align-items: center;
-		justify-content: space-between;
-		gap: 1rem;
+		gap: 0.55rem;
+		min-width: 0;
+	}
+	h1 {
+		font-size: 1.35rem;
+		font-weight: 760;
+		line-height: 1;
+	}
+	.price {
+		color: var(--text);
+		font-size: 1rem;
+		font-weight: 650;
+		font-variant-numeric: tabular-nums;
+	}
+	.chip,
+	.count {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		height: 24px;
+		padding: 0 0.5rem;
+		border: 1px solid var(--border);
+		border-radius: 6px;
+		background: var(--surface);
+		color: var(--muted);
+		font-size: 0.72rem;
+		font-weight: 650;
+		white-space: nowrap;
 	}
 	.picker {
 		display: flex;
 		align-items: center;
-		gap: 0.5rem;
+		justify-content: center;
+		gap: 0.45rem;
+		min-width: 0;
 		flex-wrap: wrap;
 	}
 	.picker input,
 	.picker select {
-		height: 32px;
+		height: 34px;
 		padding: 0 0.55rem;
-		background: var(--bg);
+		background: var(--surface);
 		color: var(--text);
 		border: 1px solid var(--border);
 		border-radius: 6px;
-		font-size: 0.875rem;
+		font-size: 0.82rem;
 		font-family: inherit;
+	}
+	.picker input:hover,
+	.picker select:hover {
+		border-color: var(--border-strong);
 	}
 	.picker input:focus,
 	.picker select:focus {
 		outline: none;
 		border-color: var(--accent);
+		box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent);
 	}
 	.picker .ticker {
 		width: 6.5rem;
 		text-transform: uppercase;
 		font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+		font-weight: 700;
 	}
 	.picker button {
-		height: 32px;
-		padding: 0 0.9rem;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.35rem;
+		height: 34px;
+		padding: 0 0.8rem;
 		background: var(--accent);
-		color: #fff;
+		color: var(--accent-contrast);
 		border: none;
 		border-radius: 6px;
-		font-size: 0.85rem;
-		font-weight: 600;
+		font-size: 0.82rem;
+		font-weight: 750;
 		cursor: pointer;
+	}
+	.picker button:hover:not(:disabled) {
+		filter: brightness(1.07);
 	}
 	.picker button:disabled {
 		opacity: 0.55;
@@ -314,23 +436,25 @@
 	.status-group {
 		display: flex;
 		align-items: center;
-		gap: 0.6rem;
+		justify-content: flex-end;
+		gap: 0.55rem;
+		min-width: max-content;
 	}
 	.live-dot {
 		width: 9px;
 		height: 9px;
 		border-radius: 50%;
-		background: #3fb950;
-		box-shadow: 0 0 6px #3fb950;
+		background: var(--buy);
+		box-shadow: 0 0 8px color-mix(in srgb, var(--buy) 75%, transparent);
 	}
 	.live-dot.connecting {
-		background: #e3b341;
-		box-shadow: 0 0 6px #e3b341;
+		background: var(--warn);
+		box-shadow: 0 0 8px color-mix(in srgb, var(--warn) 75%, transparent);
 		animation: pulse 1s ease-in-out infinite;
 	}
 	.live-dot.error {
-		background: #f85149;
-		box-shadow: 0 0 6px #f85149;
+		background: var(--sell);
+		box-shadow: 0 0 8px color-mix(in srgb, var(--sell) 75%, transparent);
 	}
 	@keyframes pulse {
 		0%,
@@ -341,42 +465,64 @@
 			opacity: 0.4;
 		}
 	}
-	/* Chart grows to fill most of the window; the signals panel scrolls below it. */
+	.workbench {
+		min-height: 0;
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) minmax(330px, 28vw);
+		gap: 0.75rem;
+	}
 	.chart-area {
-		flex: 1 1 58%;
-		min-height: 260px;
+		min-width: 0;
+		min-height: 0;
 	}
 	.signals-area {
-		flex: 1 1 42%;
-		min-height: 150px;
-		display: flex;
-		flex-direction: column;
-		gap: 0.4rem;
-	}
-	.signals-scroll {
-		flex: 1;
+		min-width: 0;
 		min-height: 0;
-		overflow-y: auto;
+		display: grid;
+		grid-template-rows: auto minmax(0, 1fr) auto;
 		border: 1px solid var(--border);
 		border-radius: 8px;
+		background: var(--panel);
+		overflow: hidden;
+	}
+	.signals-head {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.75rem;
+		padding: 0.8rem 0.9rem;
+		border-bottom: 1px solid var(--border);
 	}
 	h2 {
-		flex: 0 0 auto;
 		font-size: 0.9rem;
+		color: var(--text);
+		margin: 0;
+		font-weight: 700;
+		text-transform: capitalize;
+	}
+	.signals-head p {
+		margin: 0.18rem 0 0;
 		color: var(--muted);
-		margin: 0.25rem 0 0;
-		font-weight: 600;
+		font-size: 0.75rem;
+	}
+	.count {
+		min-width: 34px;
+		color: var(--text);
+		font-variant-numeric: tabular-nums;
+	}
+	.signals-scroll {
+		min-height: 0;
+		overflow: auto;
 	}
 	.caveat {
-		flex: 0 0 auto;
-		color: #6e7681;
-		font-size: 0.78rem;
-		font-style: italic;
+		padding: 0.65rem 0.85rem;
+		border-top: 1px solid var(--border);
+		color: var(--muted);
+		font-size: 0.75rem;
+		line-height: 1.35;
 		margin: 0;
 	}
-	/* Fills the whole content area (centered) while loading / on error. */
 	.placeholder {
-		flex: 1;
 		min-height: 0;
 		display: flex;
 		flex-direction: column;
@@ -384,13 +530,13 @@
 		justify-content: center;
 		gap: 0.5rem;
 		border: 1px solid var(--border);
-		border-radius: 10px;
+		border-radius: 8px;
 		background: var(--panel);
 		color: var(--text);
 		text-align: center;
 	}
 	.placeholder.error {
-		color: #f85149;
+		color: var(--sell);
 	}
 	.placeholder .hint {
 		color: var(--muted);
@@ -399,10 +545,10 @@
 	}
 	.placeholder button {
 		margin-top: 0.5rem;
-		padding: 0.4rem 1rem;
+		padding: 0.45rem 1rem;
 		border: 1px solid var(--border);
 		border-radius: 6px;
-		background: transparent;
+		background: var(--surface);
 		color: var(--text);
 		cursor: pointer;
 	}
@@ -423,8 +569,51 @@
 			transform: rotate(360deg);
 		}
 	}
+	@media (max-width: 1180px) {
+		.monitor-head {
+			grid-template-columns: 1fr;
+			align-items: stretch;
+		}
+		.picker {
+			justify-content: flex-start;
+		}
+		.status-group {
+			justify-content: flex-start;
+		}
+	}
+	@media (max-width: 980px) {
+		.monitor {
+			overflow: auto;
+		}
+		.workbench {
+			grid-template-columns: 1fr;
+			grid-template-rows: minmax(520px, 68vh) minmax(320px, 44vh);
+		}
+	}
+	@media (max-width: 640px) {
+		.monitor {
+			padding: 0.6rem;
+		}
+		.monitor-head {
+			padding: 0.6rem;
+		}
+		.instrument-row {
+			flex-wrap: wrap;
+		}
+		.picker {
+			display: grid;
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+		}
+		.picker .ticker,
+		.picker input,
+		.picker select,
+		.picker button {
+			width: 100%;
+		}
+	}
 	@media (prefers-reduced-motion: reduce) {
-		.spinner {
+		.spinner,
+		.live-dot.connecting {
 			animation: none;
 		}
 	}

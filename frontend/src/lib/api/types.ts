@@ -105,12 +105,19 @@ export interface Levels {
 	vah: number;
 	val: number;
 }
+export interface ChartStudy {
+	key: string;
+	label: string;
+	pane: 'price' | string;
+	points: ChartLine[];
+}
 export interface BarsPayload {
 	symbol: string;
 	timeframe: string;
 	candles: ChartCandle[];
 	volume: ChartVolume[];
 	vwap: ChartLine[];
+	studies: ChartStudy[];
 	markers: ChartMarker[];
 	levels: Levels | null;
 	data_completeness: number;

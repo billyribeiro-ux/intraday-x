@@ -146,12 +146,20 @@ class LevelsDTO(BaseModel):
     val: float
 
 
+class StudyDTO(BaseModel):
+    key: str
+    label: str
+    pane: str
+    points: list[LinePointDTO]
+
+
 class BarsResponse(BaseModel):
     symbol: str
     timeframe: str
     candles: list[CandleDTO]
     volume: list[VolumePointDTO]
     vwap: list[LinePointDTO]
+    studies: list[StudyDTO] = []
     markers: list[MarkerDTO]
     levels: LevelsDTO | None
     data_completeness: float
