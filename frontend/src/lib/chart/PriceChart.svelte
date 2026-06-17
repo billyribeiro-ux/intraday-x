@@ -31,10 +31,9 @@
 		vwap: LineData<UTCTimestamp>[];
 		markers?: SeriesMarker<UTCTimestamp>[];
 		levels?: Levels | null;
-		height?: number;
 	}
 
-	let { candles, volume, vwap, markers = [], levels = null, height = 420 }: Props = $props();
+	let { candles, volume, vwap, markers = [], levels = null }: Props = $props();
 
 	// Imperative chart handles — deliberately NOT $state (they're not UI state).
 	let container = $state<HTMLDivElement>();
@@ -101,12 +100,14 @@
 	});
 </script>
 
-<!-- Fixed height => no layout shift when data loads. -->
-<div class="chart" bind:this={container} style="height: {height}px"></div>
+<!-- Fills its parent (.chart-area); autoSize keeps the canvas sized to it. -->
+<div class="chart" bind:this={container}></div>
 
 <style>
 	.chart {
 		width: 100%;
+		height: 100%;
+		min-height: 0;
 		border: 1px solid #1b2230;
 		border-radius: 8px;
 		overflow: hidden;

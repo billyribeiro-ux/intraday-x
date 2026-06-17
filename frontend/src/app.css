@@ -32,6 +32,8 @@ html,
 body {
 	margin: 0;
 	padding: 0;
+	height: 100%;
+	overflow: hidden; /* the app shell fills the viewport; scrolling happens inside <main> */
 	background: var(--bg);
 	color: var(--text);
 	font-family:
