@@ -6,8 +6,8 @@
   "build": {
     "frontendDist": "../frontend/build",
     "devUrl": "http://localhost:5173",
-    "beforeDevCommand": "pnpm --dir ../frontend dev",
-    "beforeBuildCommand": "pnpm --dir ../frontend build"
+    "beforeDevCommand": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || echo .)\" && cd frontend && pnpm dev",
+    "beforeBuildCommand": "cd \"$(git rev-parse --show-toplevel 2>/dev/null || echo .)\" && cd frontend && pnpm build"
   },
   "app": {
     "windows": [

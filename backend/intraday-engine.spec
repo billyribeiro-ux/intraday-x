@@ -3,25 +3,13 @@
 # PyInstaller spec for the intraday-x desktop sidecar.
 # =====================================================
 #
-# Produces ONE self-contained, console executable named "intraday-engine"
-# from backend/src/intradayx/desktop_sidecar.py. Build it via
+# Produces a ONEDIR bundle named "intraday-engine" from
+# backend/src/intradayx/desktop_sidecar.py. Build it via
 # backend/scripts/build_sidecar.sh; the result is copied to
-#   src-tauri/binaries/intraday-engine-aarch64-apple-darwin
-# which matches Tauri's externalBin entry "binaries/intraday-engine" suffixed
-# with the Rust host target triple.
-#
-# WHY ONEFILE (not onedir):
-#   Tauri's `externalBin` expects to spawn a SINGLE invocable file at
-#   `binaries/intraday-engine-<triple>`. A onedir build is a folder
-#   (`intraday-engine/intraday-engine` + `_internal/`) that Tauri's bundler
-#   will NOT relocate as one sidecar — you'd have to hand-flatten it. Onefile
-#   gives exactly the one path the bundler signs, notarizes, and ships.
-#   MEASURED trade-off: onefile self-extracts to a temp dir AND uses the frozen
-#   importer, so importing the data stack (polars/duckdb/pyarrow/pandas/scipy)
-#   costs ~17s cold start on every launch for this build (179MB). The frontend
-#   resolver tolerates it (30s handshake timeout), but for snappy startup the
-#   real fix is a onedir build invoked via a Tauri resource dir — see
-#   docs/DESKTOP.md "Startup latency / onedir". Tracked as a follow-up.
+#   src-tauri/binaries/engine
+# which Tauri ships via bundle.resources. The Rust core spawns
+#   Resources/engine/intraday-engine
+# directly, so there is no per-launch self-extraction.
 #
 # WHY collect_all/collect_submodules below:
 #   The runtime stack (polars, duckdb, pyarrow, pandas, scipy + the uvicorn/
