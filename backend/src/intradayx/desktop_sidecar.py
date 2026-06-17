@@ -44,8 +44,14 @@ def main() -> None:
     try:
         import uvicorn
 
+        from intradayx.api import settings_store
         from intradayx.api.app import app
         from intradayx.config import get_settings
+
+        # Load persisted desktop settings (API keys, provider order, watched symbols)
+        # BEFORE building the config so the bundled app starts with the user's choices.
+        stored = settings_store.load_settings()
+        settings_store.apply_to_env(stored)
 
         settings = get_settings()
 

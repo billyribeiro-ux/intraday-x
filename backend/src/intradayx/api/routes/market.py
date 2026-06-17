@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
 from intradayx.api.schemas import (
     BarsResponse,
@@ -20,5 +20,11 @@ def capabilities() -> CapabilitiesResponse:
 
 
 @router.get("/bars", response_model=BarsResponse)
-def bars(symbol: str, timeframe: str = "5m", days: int = 7) -> BarsResponse:
-    return build_chart(symbol, timeframe, days)
+def bars(
+    symbol: str, timeframe: str = "5m", days: int = 7, scanner: str = "reversal"
+) -> BarsResponse:
+    if scanner not in ("reversal", "scalping"):
+        raise HTTPException(
+            status_code=400, detail="scanner must be 'reversal' or 'scalping'"
+        )
+    return build_chart(symbol, timeframe, days, scanner=scanner)

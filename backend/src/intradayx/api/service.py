@@ -29,7 +29,7 @@ from intradayx.backtest.runner import run_backtest
 from intradayx.data.factory import default_provider
 from intradayx.data.provider import DataProvider
 from intradayx.domain.bars import Timeframe
-from intradayx.domain.capabilities import Capability
+from intradayx.domain.capabilities import Capability, ProviderCapabilities
 from intradayx.features.pipeline import build_features
 from intradayx.signals.engine import SignalEngine
 
@@ -48,6 +48,20 @@ def _epoch(ts: datetime) -> int:
     return int(ts.timestamp())
 
 
+def _clamped_start(end: datetime, days: int, caps: ProviderCapabilities, tf: Timeframe) -> datetime:
+    """Return the start time, clamped to what the active provider can serve.
+
+    For very large ``days`` (e.g. "max" = 36500) we fetch as far back as the
+    provider's declared lookback instead of raising a lookback error.
+    """
+    requested = end - timedelta(days=days)
+    window = caps.lookback_for(tf)
+    if window is None:
+        return requested
+    earliest = end - window - timedelta(days=1)
+    return max(requested, earliest)
+
+
 def run_scan(symbol: str, timeframe: str, days: int, scanner: str = "reversal") -> ScanResponse:
     from intradayx.features.pipeline import data_completeness_for
     from intradayx.signals.engine import SignalEngine
@@ -56,8 +70,9 @@ def run_scan(symbol: str, timeframe: str, days: int, scanner: str = "reversal") 
     tf = Timeframe(timeframe)
     provider = get_provider()
     end = datetime.now(tz=UTC)
-    bars = provider.bars(symbol.upper(), end - timedelta(days=days), end, tf)
     caps = provider.capabilities()
+    start = _clamped_start(end, days, caps, tf)
+    bars = provider.bars(symbol.upper(), start, end, tf)
 
     signals = SignalEngine(make_strategy(scanner)).scan(bars, caps)
     if caps.supports(Capability.EARNINGS_CALENDAR):
@@ -73,12 +88,15 @@ def run_scan(symbol: str, timeframe: str, days: int, scanner: str = "reversal") 
     )
 
 
-def build_chart(symbol: str, timeframe: str, days: int) -> BarsResponse:
+def build_chart(symbol: str, timeframe: str, days: int, scanner: str = "reversal") -> BarsResponse:
+    from intradayx.signals.strategy import make_strategy
+
     tf = Timeframe(timeframe)
     provider = get_provider()
     end = datetime.now(tz=UTC)
-    bars = provider.bars(symbol.upper(), end - timedelta(days=days), end, tf)
     caps = provider.capabilities()
+    start = _clamped_start(end, days, caps, tf)
+    bars = provider.bars(symbol.upper(), start, end, tf)
 
     if bars.is_empty():
         return BarsResponse(
@@ -124,7 +142,7 @@ def build_chart(symbol: str, timeframe: str, days: int) -> BarsResponse:
     if last.get("prior_poc") is not None:
         levels = LevelsDTO(poc=last["prior_poc"], vah=last["prior_vah"], val=last["prior_val"])
 
-    signals = get_engine().evaluate(fs)
+    signals = SignalEngine(make_strategy(scanner)).evaluate(fs)
     markers: list[MarkerDTO] = []
     for s in sorted(signals, key=lambda x: x.ts):
         buy = s.side.is_bullish
@@ -134,7 +152,7 @@ def build_chart(symbol: str, timeframe: str, days: int) -> BarsResponse:
                 position="belowBar" if buy else "aboveBar",
                 shape="arrowUp" if buy else "arrowDown",
                 color="#3fb950" if buy else "#f85149",
-                text=s.kind.value.replace("reversal_", ""),
+                text=s.kind.value.replace("reversal_", "").replace("scalp_", ""),
             )
         )
 
@@ -160,7 +178,9 @@ def run_backtest_dto(
     tf = Timeframe(timeframe)
     provider = get_provider()
     end = datetime.now(tz=UTC)
-    bars = provider.bars(symbol.upper(), end - timedelta(days=days), end, tf)
+    caps = provider.capabilities()
+    start = _clamped_start(end, days, caps, tf)
+    bars = provider.bars(symbol.upper(), start, end, tf)
     # Build the engine for the CHOSEN scanner (mirrors run_scan), not the cached
     # default-reversal engine — so the backtest actually runs the selected scanner.
     engine = SignalEngine(make_strategy(scanner))

@@ -21,9 +21,10 @@ export function getBars(
 	fetchFn: Fetch,
 	symbol: string,
 	timeframe = '5m',
-	days = 7
+	days = 7,
+	scanner: Scanner = 'reversal'
 ): Promise<BarsPayload> {
-	const q = new URLSearchParams({ symbol, timeframe, days: String(days) });
+	const q = new URLSearchParams({ symbol, timeframe, days: String(days), scanner });
 	return getJson<BarsPayload>(fetchFn, `/api/bars?${q}`);
 }
 

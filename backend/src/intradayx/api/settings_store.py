@@ -31,10 +31,12 @@ _FILENAME = "settings.json"
 # Vendor name -> the env var its provider reads via os.environ.get(...). yfinance
 # is credential-free (no env var, always configured) so it is intentionally
 # absent. Mirrors the providers' own os.environ lookups; keep in sync if a new
-# keyed vendor is registered.
+# keyed vendor is registered. FMP is a paid subscription; the other two have
+# free tiers.
 VENDOR_ENV_VARS: dict[str, str] = {
     "twelvedata": "TWELVEDATA_API_KEY",
     "polygon": "POLYGON_API_KEY",
+    "fmp": "FMP_API_KEY",
 }
 
 VALID_THEMES = ("dark", "light", "system")
@@ -117,10 +119,11 @@ def save_settings(stored: StoredSettings) -> None:
 
 
 def apply_to_env(stored: StoredSettings) -> None:
-    """Push stored vendor keys into os.environ under each vendor's env var.
+    """Push stored settings into os.environ so pydantic-settings picks them up.
 
-    Only known/keyed vendors are mapped; an empty key clears the var so a deleted
-    key really drops the vendor. Never logs key values.
+    Vendor credentials get their conventional env vars; the provider order and
+    watched symbols are exported as JSON arrays under INTRADAYX_*. Empty values
+    clear the var so a deletion really drops it. Never logs key values.
     """
     for vendor, env_var in VENDOR_ENV_VARS.items():
         key = stored.vendor_keys.get(vendor)
@@ -128,6 +131,9 @@ def apply_to_env(stored: StoredSettings) -> None:
             os.environ[env_var] = key
         else:
             os.environ.pop(env_var, None)
+
+    os.environ["INTRADAYX_PROVIDERS"] = json.dumps(stored.providers)
+    os.environ["INTRADAYX_WATCHED_SYMBOLS"] = json.dumps(stored.watched_symbols)
 
 
 def rebuild_provider() -> None:
