@@ -21,6 +21,7 @@ from intradayx.domain.capabilities import (
     CapabilityError,
     ProviderCapabilities,
 )
+from intradayx.domain.catalysts import CatalystEvent
 from intradayx.domain.internals import InternalsSeries, InternalSymbol
 from intradayx.domain.options import OptionChain
 from intradayx.domain.shorts import BorrowRate, ShortInterest, ShortVolume
@@ -118,6 +119,12 @@ class DataProvider(ABC):
     def earnings_dates(self, ticker: str) -> list[date]:
         """Scheduled-earnings dates (past + upcoming), ascending. A named catalyst."""
         raise CapabilityError(self.name, Capability.EARNINGS_CALENDAR)
+
+    def catalyst_events(
+        self, ticker: str, start: datetime, end: datetime
+    ) -> list[CatalystEvent]:
+        """Named, timestamped FMP catalyst evidence for ``ticker`` in ``[start, end]``."""
+        raise CapabilityError(self.name, Capability.STOCK_NEWS)
 
     # --- shared helpers ---
 

@@ -24,6 +24,7 @@ from intradayx.domain.capabilities import (
     CapabilityError,
     ProviderCapabilities,
 )
+from intradayx.domain.catalysts import CatalystEvent
 from intradayx.domain.internals import InternalsSeries, InternalSymbol
 from intradayx.domain.options import OptionChain
 from intradayx.domain.shorts import BorrowRate, ShortInterest, ShortVolume
@@ -195,3 +196,31 @@ class CompositeProvider(DataProvider):
             except CapabilityError:
                 continue
         raise CapabilityError(self.name, Capability.EARNINGS_CALENDAR)
+
+    def catalyst_events(
+        self, ticker: str, start: datetime, end: datetime
+    ) -> list[CatalystEvent]:
+        events: list[CatalystEvent] = []
+        attempted = False
+        last_error: Exception | None = None
+        for prov in self._providers:
+            if not (
+                prov.capabilities().supports(Capability.STOCK_NEWS)
+                or prov.capabilities().supports(Capability.EARNINGS_CALENDAR)
+            ):
+                continue
+            attempted = True
+            try:
+                events.extend(prov.catalyst_events(ticker, start, end))
+            except CapabilityError:
+                continue
+            except (DataError, TransientError) as exc:
+                last_error = exc
+                continue
+        if events:
+            return sorted(events, key=lambda e: e.ts)
+        if not attempted:
+            raise CapabilityError(self.name, Capability.STOCK_NEWS)
+        if last_error is not None:
+            raise DataError(f"all catalyst providers failed for {ticker}: {last_error}")
+        return []

@@ -48,7 +48,11 @@ class Capability(StrEnum):
     BORROW_RATE = "borrow_rate"
 
     # --- catalysts ---
-    EARNINGS_CALENDAR = "earnings_calendar"  # scheduled-earnings dates (free via yfinance)
+    EARNINGS_CALENDAR = "earnings_calendar"  # scheduled-earnings dates / reports
+    STOCK_NEWS = "stock_news"
+    PRESS_RELEASES = "press_releases"
+    ANALYST_GRADES = "analyst_grades"
+    PRICE_TARGETS = "price_targets"
 
 
 # Convenience groupings used by feature/detector gating.
