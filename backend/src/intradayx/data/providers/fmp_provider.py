@@ -123,7 +123,7 @@ class FMPProvider(DataProvider):
     def _request(self, path: str, params: dict[str, str]) -> Any:
         if not self._api_key:
             raise MissingCredentialsError(
-                "FMP_API_KEY is required. Market data is locked to Financial Modeling Prep."
+                "FMP_API_KEY is required. Market data is FMP-only."
             )
 
         timeout = httpx.Timeout(30.0, connect=5.0)
@@ -193,7 +193,7 @@ class FMPProvider(DataProvider):
     ) -> BarSet:
         if not self._api_key:
             raise MissingCredentialsError(
-                "FMP_API_KEY is required. Market data is locked to Financial Modeling Prep."
+                "FMP_API_KEY is required. Market data is FMP-only."
             )
 
         symbol = ticker.upper()

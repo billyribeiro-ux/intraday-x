@@ -18,7 +18,7 @@ from fastapi import FastAPI, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from intradayx.api import metrics
+from intradayx.api import metrics, settings_store
 from intradayx.api.routes import analysis, market, settings
 from intradayx.api.ws import ConnectionManager, SignalPoller, signal_message, status_message
 from intradayx.config import Settings, get_settings
@@ -40,6 +40,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             f"intraday-x must run with a single worker (WEB_CONCURRENCY={workers}). "
             "The poller + websocket ConnectionManager are single-instance."
         )
+    settings_store.apply_to_env(settings_store.load_settings())
+    get_settings.cache_clear()
     settings = get_settings()
     poller = SignalPoller(
         manager,

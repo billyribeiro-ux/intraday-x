@@ -65,8 +65,7 @@ def build_provider(settings: Settings | None = None) -> DataProvider:
 
     if not chosen:
         raise MissingCredentialsError(
-            "FMP_API_KEY is required. Market data is locked to Financial Modeling Prep; "
-            "no fallback provider will be used."
+            "FMP_API_KEY is required. Market data is FMP-only; no fallback provider will be used."
         )
 
     logger.info("data layer: %s", [p.name for p, _ in chosen])
