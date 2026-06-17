@@ -113,6 +113,19 @@ export interface ChartStudy {
 	pane: 'price' | string;
 	points: ChartLine[];
 }
+export interface MoveDriver {
+	kind: string;
+	score: number;
+	label: string;
+	evidence: Record<string, number>;
+}
+export interface MoveExplanation {
+	direction: 'up' | 'down' | 'sideways' | string;
+	regime: string;
+	confidence: number;
+	summary: string;
+	drivers: MoveDriver[];
+}
 export interface BarsPayload {
 	symbol: string;
 	timeframe: string;
@@ -123,6 +136,7 @@ export interface BarsPayload {
 	markers: ChartMarker[];
 	levels: Levels | null;
 	data_completeness: number;
+	move_explanation?: MoveExplanation | null;
 }
 export interface ScanPayload {
 	symbol: string;

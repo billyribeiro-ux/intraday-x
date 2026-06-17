@@ -16,6 +16,7 @@ from intradayx.domain.capabilities import ProviderCapabilities
 from intradayx.domain.signals import Side, Signal, SignalKind
 from intradayx.features.pipeline import FeatureSet, build_features
 from intradayx.signals.reversal import ReversalStrategy
+from intradayx.signals.snapshot import SIGNAL_SNAPSHOT_FEATURES, snapshot_from_row
 from intradayx.signals.strategy import Strategy
 
 if TYPE_CHECKING:
@@ -44,6 +45,13 @@ class SignalEngine:
 
     def evaluate(self, fs: FeatureSet) -> list[Signal]:
         frame = self.strategy.signal_frame(fs)
+        context_cols = [
+            c
+            for c in (*SIGNAL_SNAPSHOT_FEATURES, "trend_regime")
+            if c in fs.df.columns and c not in frame.columns
+        ]
+        if context_cols and not frame.is_empty():
+            frame = frame.join(fs.df.select(["ts", *context_cols]), on="ts", how="left")
         signals: list[Signal] = []
         for row in frame.iter_rows(named=True):
             attribution = self.strategy.attribution(row, fs.data_completeness)
@@ -51,11 +59,7 @@ class SignalEngine:
             # weight retune that sums > 1 must not leak a > 1 confidence).
             confidence = min(float(row["confluence"]) * fs.data_completeness, 1.0)
             stop = float(row["stop"]) if row["stop"] is not None else float(row["entry"])
-            snapshot = {
-                k: float(v)
-                for k, v in row.items()
-                if (k == "confluence" or k.startswith("c_")) and v is not None
-            }
+            snapshot = snapshot_from_row(row)
             raw_qs = row.get("quality_score")
             quality_score = 1.0 if raw_qs is None else float(raw_qs)
             signals.append(
