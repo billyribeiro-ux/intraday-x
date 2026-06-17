@@ -1,4 +1,4 @@
-"""Polygon provider: honest capabilities, key-gating, and factory wiring (no network)."""
+"""Polygon provider: honest capabilities and key-gating (no network)."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 
 import pytest
 
+from intradayx.config import get_settings
 from intradayx.data.factory import default_provider
 from intradayx.data.provider import MissingCredentialsError
 from intradayx.data.providers.polygon_provider import PolygonProvider
@@ -29,13 +30,19 @@ def test_polygon_bars_without_key_fails_loud(monkeypatch: pytest.MonkeyPatch) ->
         p.bars("AAPL", now, now, Timeframe.M5)
 
 
-def test_factory_prefers_polygon_when_key_present(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_runtime_ignores_polygon_even_when_key_present(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("POLYGON_API_KEY", "dummy")
-    names = [pr.name for pr in default_provider()._providers]
-    assert names[0] == "polygon"  # priority 3 => first/preferred
+    monkeypatch.delenv("FMP_API_KEY", raising=False)
+    monkeypatch.setenv("INTRADAYX_PROVIDERS", '["polygon"]')
+    get_settings.cache_clear()
+    with pytest.raises(MissingCredentialsError, match="FMP_API_KEY is required"):
+        default_provider()
 
 
-def test_factory_skips_polygon_without_key(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_runtime_requires_fmp_instead_of_polygon_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("POLYGON_API_KEY", raising=False)
-    names = [pr.name for pr in default_provider()._providers]
-    assert "polygon" not in names
+    monkeypatch.delenv("FMP_API_KEY", raising=False)
+    monkeypatch.setenv("INTRADAYX_PROVIDERS", '["polygon"]')
+    get_settings.cache_clear()
+    with pytest.raises(MissingCredentialsError, match="FMP_API_KEY is required"):
+        default_provider()

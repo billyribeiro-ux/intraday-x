@@ -56,7 +56,9 @@ export interface WsEnvelope<T> {
 }
 
 export interface StatusData {
-	source: string; // honest provenance, e.g. "yfinance"
+	source: string; // honest provenance, e.g. "fmp"
+	configured?: boolean;
+	detail?: string | null;
 	mode: 'poll' | 'stream';
 	poll_interval_s?: number;
 	market_session: 'pre' | 'rth' | 'post' | 'closed';
@@ -69,7 +71,7 @@ export type WsMessage =
 	| WsEnvelope<{ next_poll_in_s: number }> // type: "heartbeat"
 	| WsEnvelope<Signal> // type: "signal"
 	| WsEnvelope<{ signal_id: string; reason: string }> // type: "signal_revoke"
-	| WsEnvelope<{ code: string; retry_in_s: number }>; // type: "error"
+	| WsEnvelope<{ code: string; retry_in_s?: number; detail?: string }>; // type: "error"
 
 export function uiDirection(side: Side): 'buy' | 'sell' {
 	return side === 'buy' || side === 'cover' ? 'buy' : 'sell';

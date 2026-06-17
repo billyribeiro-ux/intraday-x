@@ -84,13 +84,19 @@
 			flex-direction: row;
 			width: 100%;
 			flex: 0 0 auto;
-			overflow-x: auto;
+			overflow-x: hidden;
 			border-right: none;
 			border-bottom: 1px solid var(--border);
 		}
 		.nav-link {
-			flex: 1 0 auto;
+			flex: 1 1 0;
 			justify-content: center;
+			min-width: 0;
+		}
+		.nav-link span {
+			overflow: hidden;
+			text-overflow: ellipsis;
+			white-space: nowrap;
 		}
 	}
 </style>

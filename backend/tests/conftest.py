@@ -10,8 +10,11 @@ machinery like the asyncio event loop's self-pipe still works.
 from __future__ import annotations
 
 import socket
+from collections.abc import Generator
 
 import pytest
+
+from intradayx.config import get_settings
 
 
 @pytest.fixture(autouse=True)
@@ -24,3 +27,10 @@ def _no_network(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch)
 
     monkeypatch.setattr(socket.socket, "connect", _blocked)
     monkeypatch.setattr(socket.socket, "connect_ex", _blocked)
+
+
+@pytest.fixture(autouse=True)
+def _clear_settings_cache() -> Generator[None, None, None]:
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()

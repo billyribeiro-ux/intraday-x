@@ -3,8 +3,8 @@
 A single-instance APScheduler job polls watched symbols, runs the shared
 SignalEngine via LiveMonitor, and broadcasts NEW signals to all connected
 clients. The protocol envelope carries provenance (`source`, `mode`) so the UI
-honestly shows "Polling yfinance · 30s" and auto-relabels to a stream when a
-push-capable vendor is added. MUST run under a single uvicorn worker.
+honestly shows FMP status and can surface missing-key/data errors. MUST run
+under a single uvicorn worker.
 """
 
 from __future__ import annotations
@@ -19,6 +19,7 @@ from fastapi import WebSocket
 from intradayx.api import metrics
 from intradayx.api.schemas import to_signal_dto
 from intradayx.api.service import get_engine, get_provider
+from intradayx.data.provider import DataError
 from intradayx.domain.bars import Timeframe
 from intradayx.domain.signals import Signal
 from intradayx.live.monitor import LiveMonitor
@@ -102,12 +103,35 @@ class SignalPoller:
         self.interval_s = interval_s
         self.recent_days = recent_days
         self.mode = mode
-        caps = get_provider().capabilities()
+        self._monitors: dict[str, LiveMonitor] = {}
+        self._provider_error: str | None = None
+        self._sync_provider_state()
+
+    def _sync_provider_state(self) -> bool:
+        """Refresh provider-backed monitors; return false when FMP is not usable yet."""
+        try:
+            caps = get_provider().capabilities()
+        except DataError as exc:
+            self._provider_error = str(exc)
+            self._monitors = {}
+            return False
+        self._provider_error = None
         self._monitors = {s: LiveMonitor(caps, get_engine()) for s in self.symbols}
+        return True
 
     def status_data(self) -> dict[str, object]:
+        source = "fmp"
+        configured = self._provider_error is None
+        if configured:
+            try:
+                source = get_provider().capabilities().provider_name
+            except DataError as exc:
+                self._provider_error = str(exc)
+                configured = False
         return {
-            "source": get_provider().capabilities().provider_name,
+            "source": source,
+            "configured": configured,
+            "detail": self._provider_error,
             "mode": self.mode,
             "poll_interval_s": self.interval_s,
             "market_session": market_session(),
@@ -116,6 +140,8 @@ class SignalPoller:
         }
 
     def _fetch_and_process(self, symbol: str) -> list[Signal]:
+        if symbol not in self._monitors and not self._sync_provider_state():
+            raise DataError(self._provider_error or "FMP provider is not configured")
         provider = get_provider()
         end = datetime.now(tz=UTC)
         start = end - timedelta(days=self.recent_days)

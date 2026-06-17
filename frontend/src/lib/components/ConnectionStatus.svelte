@@ -5,11 +5,14 @@
 	interface Props {
 		state: ConnState;
 		source?: string | null;
+		configured?: boolean | null;
+		detail?: string | null;
 	}
 
-	let { state, source = null }: Props = $props();
+	let { state, source = null, configured = null, detail = null }: Props = $props();
 
 	let label = $derived.by(() => {
+		if (state === 'open' && configured === false) return 'FMP key needed';
 		switch (state) {
 			case 'open':
 				return source ? `Live · ${source}` : 'Live';
@@ -24,10 +27,11 @@
 		}
 	});
 
-	let connected = $derived(state === 'open' || state === 'demo');
+	let connected = $derived((state === 'open' && configured !== false) || state === 'demo');
+	let title = $derived(configured === false && detail ? detail : label);
 </script>
 
-<span class="status" class:connected class:down={!connected}>
+<span class="status" class:connected class:down={!connected} {title}>
 	{#if connected}
 		<PlugsConnectedIcon size={15} weight="bold" />
 	{:else}

@@ -17,7 +17,10 @@ router = APIRouter(prefix="/api", tags=["market"])
 
 @router.get("/providers/capabilities", response_model=CapabilitiesResponse)
 def capabilities() -> CapabilitiesResponse:
-    return to_capabilities_response(get_provider().capabilities())
+    try:
+        return to_capabilities_response(get_provider().capabilities())
+    except DataError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @router.get("/bars", response_model=BarsResponse)

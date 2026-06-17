@@ -110,7 +110,9 @@ class FMPProvider(DataProvider):
                     Timeframe.H4,
                 )
             },
-            rate_limit_hint="FMP plan-dependent rate limits; stable API, websocket stocks/crypto/forex",
+            rate_limit_hint=(
+                "FMP plan-dependent rate limits; stable API, websocket stocks/crypto/forex"
+            ),
         )
 
     @staticmethod

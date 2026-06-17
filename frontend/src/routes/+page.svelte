@@ -44,6 +44,7 @@
 	const ranges: { label: string; days: number }[] = [
 		{ label: '1D', days: 1 },
 		{ label: '5D', days: 5 },
+		{ label: '7D', days: 7 },
 		{ label: '1M', days: 30 },
 		{ label: '3M', days: 90 },
 		{ label: '6M', days: 180 },
@@ -245,7 +246,12 @@
 					<option value={s.value}>{s.label}</option>
 				{/each}
 			</select>
-			<select bind:value={assetClass} aria-label="Asset class" title="FMP live feed asset class">
+			<select
+				class="asset-class"
+				bind:value={assetClass}
+				aria-label="Asset class"
+				title="FMP live feed asset class"
+			>
 				{#each assetClasses as ac (ac.value)}
 					<option value={ac.value}>{ac.label}</option>
 				{/each}
@@ -263,7 +269,12 @@
 			{:else if fmpStore.status === 'error'}
 				<span class="live-dot error" title={fmpLabel()}></span>
 			{/if}
-			<ConnectionStatus state={signalStore.status} source={signalStore.serverStatus?.source} />
+			<ConnectionStatus
+				state={signalStore.status}
+				source={signalStore.serverStatus?.source}
+				configured={signalStore.serverStatus?.configured}
+				detail={signalStore.serverStatus?.detail}
+			/>
 		</div>
 	</div>
 
@@ -539,9 +550,17 @@
 		color: var(--sell);
 	}
 	.placeholder .hint {
+		align-self: center;
 		color: var(--muted);
 		font-size: 0.82rem;
+		line-height: 1.4;
 		margin: 0;
+		max-width: 100%;
+		min-width: 0;
+		overflow-wrap: anywhere;
+		white-space: normal;
+		width: min(78ch, calc(100vw - 3rem));
+		word-break: break-word;
 	}
 	.placeholder button {
 		margin-top: 0.5rem;
@@ -603,12 +622,21 @@
 		.picker {
 			display: grid;
 			grid-template-columns: repeat(2, minmax(0, 1fr));
+			gap: 0.45rem;
 		}
 		.picker .ticker,
 		.picker input,
 		.picker select,
 		.picker button {
+			min-width: 0;
 			width: 100%;
+		}
+		.picker button {
+			grid-column: 1 / -1;
+			padding: 0 0.45rem;
+		}
+		.picker .asset-class {
+			grid-column: 1 / -1;
 		}
 	}
 	@media (prefers-reduced-motion: reduce) {

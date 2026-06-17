@@ -75,12 +75,17 @@ class StoredSettings:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> StoredSettings:
         defaults = cls()
+        vendor_keys = {
+            vendor: key
+            for vendor, key in dict(data.get("vendor_keys", {})).items()
+            if vendor in VENDOR_ENV_VARS and key
+        }
         return cls(
             theme=str(data.get("theme", defaults.theme)),
             providers=[CANONICAL_PROVIDER],
             watched_symbols=list(data.get("watched_symbols", defaults.watched_symbols)),
             default_scanner=str(data.get("default_scanner", defaults.default_scanner)),
-            vendor_keys=dict(data.get("vendor_keys", {})),
+            vendor_keys=vendor_keys,
         )
 
 
@@ -107,6 +112,7 @@ def save_settings(stored: StoredSettings) -> None:
 
     Never logs key values.
     """
+    stored = StoredSettings.from_dict(asdict(stored))
     path = settings_path()
     path.write_text(json.dumps(asdict(stored), indent=2), encoding="utf-8")
     os.chmod(path, 0o600)
