@@ -27,6 +27,10 @@
 			hour12: true
 		});
 	}
+
+	function score(n: number | undefined | null): string {
+		return n == null ? '—' : n.toFixed(2);
+	}
 </script>
 
 <div class="table-wrap">
@@ -38,20 +42,22 @@
 				<th>Kind</th>
 				<th>Side</th>
 				<th class="num">Conf</th>
+				<th class="num">Quality</th>
+				<th class="num">ML</th>
 				<th>Time (ET)</th>
 				<th>Why</th>
 			</tr>
 		</thead>
 		<tbody>
 			{#if signals.length === 0}
-				<tr class="empty"><td colspan="7">No signals yet.</td></tr>
+				<tr class="empty"><td colspan="9">No signals yet.</td></tr>
 			{:else}
 				{#each signals as s (s.signal_id)}
 					{@const dir = uiDirection(s.side)}
 					<tr>
 						<td class="mono">{fmtDate(s.ts)}</td>
 						<td class="mono">{s.symbol}</td>
-						<td>{s.kind.replace('reversal_', '')}</td>
+						<td>{s.kind.replace('reversal_', '').replace('scalp_', '')}</td>
 						<td class="side {dir}">
 							{#if dir === 'buy'}
 								<TrendUpIcon size={15} weight="bold" />
@@ -61,6 +67,8 @@
 							{s.side}
 						</td>
 						<td class="num">{s.confidence.toFixed(2)}</td>
+						<td class="num">{score(s.quality_score)}</td>
+						<td class="num">{score(s.meta_score)}</td>
 						<td class="mono">{fmtTime(s.ts)}</td>
 						<td class="why">{s.attribution.summary}</td>
 					</tr>
@@ -74,7 +82,7 @@
 	.table-wrap {
 		/* contain layout so appending rows can't reflow neighbouring panes */
 		contain: layout paint;
-		border: 1px solid #1b2230;
+		border: 1px solid var(--border);
 		border-radius: 8px;
 		overflow: auto;
 	}
@@ -86,19 +94,19 @@
 	thead th {
 		position: sticky;
 		top: 0;
-		background: #11161f;
-		color: #8b949e;
+		background: var(--panel);
+		color: var(--muted);
 		text-align: left;
 		font-weight: 600;
 		padding: 0.5rem 0.75rem;
-		border-bottom: 1px solid #1b2230;
+		border-bottom: 1px solid var(--border);
 		white-space: nowrap;
 	}
 	tbody td {
 		height: 40px; /* fixed row height => zero CLS on append */
 		padding: 0 0.75rem;
-		border-bottom: 1px solid #161c27;
-		color: #c9d1d9;
+		border-bottom: 1px solid var(--border);
+		color: var(--text);
 		white-space: nowrap;
 	}
 	.num {
@@ -121,14 +129,14 @@
 		color: #f85149;
 	}
 	.why {
-		color: #8b949e;
+		color: var(--muted);
 		max-width: 22rem;
 		overflow: hidden;
 		text-overflow: ellipsis;
 	}
 	.empty td {
 		text-align: center;
-		color: #6e7681;
+		color: var(--muted);
 		font-style: italic;
 	}
 </style>

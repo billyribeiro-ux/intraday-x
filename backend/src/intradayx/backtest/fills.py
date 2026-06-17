@@ -15,6 +15,7 @@ from dataclasses import dataclass
 class FillModel:
     slippage_bps: float = 1.0  # adverse slippage, basis points of price
     commission_per_share_cents: float = 0.5  # e.g. half a cent / share each side
+    max_dollar_volume_pct: float = 1.0  # cap position at this share of bar $ volume
 
     def entry_price(self, ref_price: float, *, is_long: bool) -> float:
         """Apply adverse slippage to a reference (next-open) price."""
@@ -28,3 +29,12 @@ class FillModel:
         1-share trade (round(0.5)=0). Ceil never under-charges the realism knob.
         """
         return math.ceil(self.commission_per_share_cents * shares)
+
+    def max_shares_for_liquidity(self, price: float, volume: int) -> int:
+        """Limit shares so the trade does not exceed its share of bar dollar volume."""
+        if price <= 0 or volume <= 0 or self.max_dollar_volume_pct <= 0:
+            return 0
+        if self.max_dollar_volume_pct >= 1.0:
+            return 2_147_483_647  # no effective cap
+        max_dollars = price * volume * self.max_dollar_volume_pct
+        return int(max_dollars / price)

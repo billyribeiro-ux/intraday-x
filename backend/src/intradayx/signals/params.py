@@ -12,7 +12,7 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True, slots=True)
 class ReversalParams:
-    version: str = "rev-0.1"
+    version: str = "rev-0.2"
     pivot_k: int = 3
     threshold: float = 0.35  # min confluence score to emit a signal
     # Confluence weights (sum ~1.0).
@@ -26,14 +26,20 @@ class ReversalParams:
     poc_atr: float = 0.75  # ATRs from prior POC for full proximity score
     # Risk.
     atr_stop_mult: float = 0.25  # stop buffer beyond the pivot extreme, in ATRs
+    # Quality filters (new) — tighten to raise precision, loosen to raise recall.
+    min_rr: float = 1.0  # minimum |target1 - entry| / |entry - stop|
+    cooldown_bars: int = 3  # no same-side signal within this many bars
+    extension_min_atr: float = 0.5  # price must be at least this far from VWAP
+    extension_max_atr: float = 4.0  # ignore parabolic reversals beyond this
+    counter_trend_adx_threshold: float = 40.0  # skip fading a strong trend
 
 
 @dataclass(frozen=True, slots=True)
 class ScalpingParams:
     """Momentum/VWAP scalping — discrete entry triggers, tight risk."""
 
-    version: str = "scalp-0.1"
-    threshold: float = 0.45  # min confluence to emit
+    version: str = "scalp-0.2"
+    threshold: float = 0.40  # min confluence to emit
     # Confluence weights (sum ~1.0).
     w_vwap: float = 0.30
     w_volume: float = 0.30
@@ -45,3 +51,8 @@ class ScalpingParams:
     # Risk (tight — scalps).
     atr_stop_mult: float = 0.5
     atr_target_mult: float = 1.0
+    # Quality filters (new).
+    min_rr: float = 1.0
+    cooldown_bars: int = 2
+    trend_align_adx_threshold: float = 25.0  # require ADX trend alignment above this
+    max_extension_atr: float = 2.0  # don't chase; wait for a pullback

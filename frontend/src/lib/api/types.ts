@@ -42,6 +42,8 @@ export interface Signal {
 	targets: number[];
 	time_of_day_bucket: TodBucket;
 	attribution: Attribution;
+	quality_score?: number;
+	meta_score?: number | null;
 }
 
 // --- websocket protocol (Phase 5) ---

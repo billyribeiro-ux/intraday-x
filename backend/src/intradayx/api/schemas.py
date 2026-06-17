@@ -40,6 +40,8 @@ class SignalDTO(BaseModel):
     targets: list[float]
     time_of_day_bucket: str
     attribution: AttributionDTO
+    quality_score: float | None = None
+    meta_score: float | None = None
 
 
 def to_attribution_dto(a: Attribution) -> AttributionDTO:
@@ -68,6 +70,8 @@ def to_signal_dto(s: Signal) -> SignalDTO:
         targets=list(s.targets),
         time_of_day_bucket=s.time_of_day_bucket,
         attribution=to_attribution_dto(s.attribution),
+        quality_score=s.quality_score,
+        meta_score=s.meta_score,
     )
 
 

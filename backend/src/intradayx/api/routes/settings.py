@@ -8,6 +8,8 @@ any response.
 
 from __future__ import annotations
 
+import os
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
@@ -160,3 +162,28 @@ def delete_vendor_key(vendor: str) -> VendorKeyResponse:
     settings_store.apply_to_env(stored)
     settings_store.rebuild_provider()
     return VendorKeyResponse(vendor=vendor, configured=False)
+
+
+class VendorKeyValueResponse(BaseModel):
+    vendor: str
+    api_key: str
+
+
+@router.get("/settings/vendor-key/{vendor}/value", response_model=VendorKeyValueResponse)
+def get_vendor_key_value(vendor: str) -> VendorKeyValueResponse:
+    """Return the raw API key for a vendor so the desktop UI can open vendor
+    streaming endpoints (e.g. FMP WebSocket). Only keyed vendors are supported.
+    The request is still local to the bundled app; the key never leaves the host.
+    """
+    if vendor not in VENDOR_ENV_VARS:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"vendor {vendor!r} takes no API key (keyed vendors: {sorted(VENDOR_ENV_VARS)})"
+            ),
+        )
+    stored = settings_store.load_settings()
+    key = stored.vendor_keys.get(vendor) or os.environ.get(VENDOR_ENV_VARS[vendor])
+    if not key:
+        raise HTTPException(status_code=404, detail=f"no API key configured for {vendor}")
+    return VendorKeyValueResponse(vendor=vendor, api_key=key)

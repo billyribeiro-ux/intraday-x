@@ -42,7 +42,13 @@ _INTERVAL: dict[Timeframe, str] = {
     Timeframe.M15: "15min",
     Timeframe.M30: "30min",
     Timeframe.H1: "1h",
+    Timeframe.H2: "2h",
+    Timeframe.H4: "4h",
     Timeframe.D1: "1day",
+    Timeframe.W1: "1week",
+    Timeframe.MO1: "1month",
+    Timeframe.MO3: "3month",
+    Timeframe.Y1: "1year",
 }
 
 
@@ -67,7 +73,18 @@ class TwelveDataProvider(DataProvider):
                     Capability.PREPOST_MARKET,
                 }
             ),
-            max_intraday_lookback={tf: _DEEP for tf in (Timeframe.M1, Timeframe.M5, Timeframe.H1)},
+            max_intraday_lookback={
+                tf: _DEEP
+                for tf in (
+                    Timeframe.M1,
+                    Timeframe.M5,
+                    Timeframe.M15,
+                    Timeframe.M30,
+                    Timeframe.H1,
+                    Timeframe.H2,
+                    Timeframe.H4,
+                )
+            },
             rate_limit_hint="free tier: ~800 credits/day, 8/min, 5000 bars/request",
         )
 

@@ -28,6 +28,20 @@ app = typer.Typer(
 console = Console()
 
 
+def _load_meta_filter(path: str):
+    """Load a joblib-serialized MetaFilter, returning None for an empty path."""
+    if not path:
+        return None
+    from pathlib import Path
+
+    import joblib
+
+    p = Path(path)
+    if not p.exists():
+        raise typer.BadParameter(f"meta-filter not found: {path}")
+    return joblib.load(p)
+
+
 @app.callback()
 def _main() -> None:
     """intradayx — self-learning intraday scanner & backtester."""
@@ -68,6 +82,15 @@ def scan(
     timeframe: str = typer.Option("5m", help="Bar interval: 1m,5m,15m,30m,1h,1d"),
     days: int = typer.Option(7, help="How many days back to scan"),
     scanner: str = typer.Option("reversal", help="Scanner: reversal | scalping"),
+    quality_threshold: float = typer.Option(
+        0.0, "--quality-threshold", help="Only emit signals with quality_score >= this (0-1)"
+    ),
+    meta_filter: str = typer.Option(
+        "", "--meta-filter", help="Path to a joblib meta-filter trained with 'tune'"
+    ),
+    meta_threshold: float = typer.Option(
+        0.5, "--meta-threshold", help="Only emit signals with meta_score >= this (0-1)"
+    ),
 ) -> None:
     """Scan TICKER for reversal (tops/bottoms) or scalping signals and print them."""
     from intradayx.signals.strategy import make_strategy
@@ -86,36 +109,61 @@ def scan(
         console.print(f"[yellow]No bars returned for {ticker.upper()} — nothing to scan.[/]")
         raise typer.Exit(code=0)
 
+    mf = _load_meta_filter(meta_filter)
     caps = provider.capabilities()
-    signals = SignalEngine(strategy).scan(bars, caps)
+    signals = SignalEngine(strategy, meta_filter=mf).scan(bars, caps)
+    signals = [s for s in signals if s.quality_score >= quality_threshold]
+    if mf is not None:
+        signals = [
+            s for s in signals if s.meta_score is not None and s.meta_score >= meta_threshold
+        ]
     from intradayx.domain.capabilities import Capability
 
     if caps.supports(Capability.EARNINGS_CALENDAR):
         from intradayx.attribution.catalysts import enrich_with_earnings
 
         signals = enrich_with_earnings(signals, provider.earnings_dates(ticker.upper()))
+    filters = []
+    if quality_threshold > 0:
+        filters.append(f"quality >= {quality_threshold:.2f}")
+    if mf is not None:
+        filters.append(f"meta >= {meta_threshold:.2f}")
+    filter_text = f" ({', '.join(filters)})" if filters else ""
     console.print(
         f"Scanned [bold]{ticker.upper()}[/] {tf.value} — {len(bars)} bars, "
-        f"[bold cyan]{len(signals)}[/] signal(s)."
+        f"[bold cyan]{len(signals)}[/] signal(s){filter_text}."
     )
     if not signals:
         return
 
+    show_meta = mf is not None
+    cols = ["Time (UTC)", "Kind", "Side", "Conf", "Qual"]
+    if show_meta:
+        cols.append("Meta")
+    cols.extend(["ToD", "Entry", "Stop", "Why"])
     table = Table(title=f"{ticker.upper()} {scanner} signals", show_lines=False)
-    for col in ("Time (UTC)", "Kind", "Side", "Conf", "ToD", "Entry", "Stop", "Why"):
+    for col in cols:
         table.add_column(col, overflow="fold")
     for s in signals:
         side_color = "green" if s.side.is_bullish else "red"
-        table.add_row(
+        row = [
             s.ts.strftime("%Y-%m-%d %H:%M"),
             s.kind.value.replace("reversal_", "").replace("scalp_", ""),
             f"[{side_color}]{s.side.value}[/]",
             f"{s.confidence:.2f}",
-            s.time_of_day_bucket,
-            f"{s.entry:.2f}",
-            f"{s.stop:.2f}",
-            s.attribution.summary,
+            f"{s.quality_score:.2f}",
+        ]
+        if show_meta:
+            row.append(f"{s.meta_score:.2f}" if s.meta_score is not None else "-")
+        row.extend(
+            [
+                s.time_of_day_bucket,
+                f"{s.entry:.2f}",
+                f"{s.stop:.2f}",
+                s.attribution.summary,
+            ]
         )
+        table.add_row(*row)
     console.print(table)
     # Honesty: surface the data-completeness caveat once.
     if signals[0].attribution.caveat:
@@ -145,12 +193,21 @@ def backtest(
     days: int = typer.Option(60, help="How many days back to backtest"),
     max_hold: int = typer.Option(24, help="Max bars to hold a trade (time-stop)"),
     scanner: str = typer.Option("reversal", help="Scanner: reversal | scalping"),
+    quality_threshold: float = typer.Option(
+        0.0, "--quality-threshold", help="Only trade signals with quality_score >= this (0-1)"
+    ),
+    meta_filter: str = typer.Option(
+        "", "--meta-filter", help="Path to a joblib meta-filter trained with 'tune'"
+    ),
+    meta_threshold: float = typer.Option(
+        0.5, "--meta-threshold", help="Only trade signals with meta_score >= this (0-1)"
+    ),
     export_dir: str = typer.Option(
         "", "--export", help="Write signals.csv, trades.csv & report.pdf to this directory"
     ),
 ) -> None:
     """Backtest a scanner on TICKER and print performance metrics."""
-    from intradayx.backtest.runner import run_backtest
+    from intradayx.backtest.runner import simulate_trades
     from intradayx.signals.strategy import make_strategy
 
     try:
@@ -167,9 +224,14 @@ def backtest(
         console.print(f"[yellow]No bars for {ticker.upper()} — nothing to backtest.[/]")
         raise typer.Exit(code=0)
 
-    res = run_backtest(
-        bars, provider.capabilities(), engine=SignalEngine(strategy), max_hold_bars=max_hold
-    )
+    mf = _load_meta_filter(meta_filter)
+    signals = SignalEngine(strategy, meta_filter=mf).scan(bars, provider.capabilities())
+    signals = [s for s in signals if s.quality_score >= quality_threshold]
+    if mf is not None:
+        signals = [
+            s for s in signals if s.meta_score is not None and s.meta_score >= meta_threshold
+        ]
+    res = simulate_trades(signals, bars, max_hold_bars=max_hold)
     m = res.metrics
     pf = "∞" if m.profit_factor == float("inf") else f"{m.profit_factor:.2f}"
     from intradayx.attribution.validation import deflated_sharpe_ratio
@@ -218,6 +280,230 @@ def backtest(
         "[dim]Edge is assumed overfit until proven otherwise: realistic costs are "
         "modeled, but validate with walk-forward + Deflated Sharpe (Phase 6) before "
         "trusting this.[/]"
+    )
+
+
+@app.command()
+def accuracy(
+    ticker: str,
+    timeframe: str = typer.Option("5m", help="Bar interval"),
+    days: int = typer.Option(60, help="How many days back to audit"),
+    scanner: str = typer.Option("reversal", help="Scanner: reversal | scalping"),
+    max_hold: int = typer.Option(24, help="Max bars to hold a signal (time-stop)"),
+) -> None:
+    """Audit signal-level accuracy: what % of emitted signals hit target first."""
+    from intradayx.signals.accuracy import accuracy_report, label_outcomes
+    from intradayx.signals.strategy import make_strategy
+
+    if scanner not in ("reversal", "scalping"):
+        raise typer.BadParameter("scanner must be 'reversal' or 'scalping'")
+
+    tf = Timeframe(timeframe)
+    end = datetime.now(tz=UTC)
+    provider = default_provider()
+    bars = provider.bars(ticker.upper(), end - timedelta(days=days), end, tf)
+    if bars.is_empty():
+        console.print(f"[yellow]No bars for {ticker.upper()}.[/]")
+        raise typer.Exit(code=0)
+
+    signals = SignalEngine(make_strategy(scanner)).scan(bars, provider.capabilities())
+    labeled = label_outcomes(signals, bars, max_hold_bars=max_hold)
+    report = accuracy_report(labeled)
+
+    console.print(
+        f"\n[bold]{ticker.upper()}[/] {tf.value} {scanner} — signal accuracy audit"
+    )
+    summary = Table(show_header=False, box=None)
+    summary.add_row("Signals audited", str(report.total))
+    summary.add_row("Win rate (target first)", f"[bold]{report.win_rate:.1%}[/]")
+    summary.add_row("Stop rate", f"{report.loss_rate:.1%}")
+    summary.add_row("Time-stop rate", f"{report.time_rate:.1%}")
+    summary.add_row("Expectancy / signal", _usd(report.expectancy_cents))
+    console.print(summary)
+
+    if report.per_kind:
+        kt = Table(title="By signal kind")
+        kt.add_column("Kind")
+        kt.add_column("Signals", justify="right")
+        kt.add_column("Win rate", justify="right")
+        for kind, r in report.per_kind.items():
+            kt.add_row(kind, str(r.total), f"{r.win_rate:.1%}")
+        console.print(kt)
+
+    # Show how tightening the quality score changes precision.
+    qt = Table(title="Quality-threshold sweep (recall → precision)")
+    qt.add_column("Quality >=", justify="right")
+    qt.add_column("Signals", justify="right")
+    qt.add_column("Win rate", justify="right")
+    for thr in (0.0, 0.5, 0.6, 0.7, 0.8):
+        r = accuracy_report(labeled, min_quality_score=thr)
+        qt.add_row(f"{thr:.1f}", str(r.total), f"{r.win_rate:.1%}")
+    console.print(qt)
+    console.print(
+        "[dim]Raise --quality-threshold to trade only the highest-quality signals; "
+        "win rate usually rises, but sample size shrinks.[/]"
+    )
+
+
+@app.command()
+def tune(
+    ticker: str,
+    timeframe: str = typer.Option("5m", help="Bar interval"),
+    days: int = typer.Option(180, help="How many days back to train on"),
+    scanner: str = typer.Option("reversal", help="Scanner: reversal | scalping"),
+    max_hold: int = typer.Option(24, help="Max bars to hold a signal (time-stop)"),
+    out_dir: str = typer.Option(
+        "data/meta_filters", "--out", help="Directory to write the fitted model"
+    ),
+) -> None:
+    """Self-learn a meta-filter for the scanner on TICKER and save it for live use."""
+    from pathlib import Path
+
+    import joblib
+
+    from intradayx.signals.meta_filter import train_meta_filter
+    from intradayx.signals.strategy import make_strategy
+
+    if scanner not in ("reversal", "scalping"):
+        raise typer.BadParameter("scanner must be 'reversal' or 'scalping'")
+
+    tf = Timeframe(timeframe)
+    end = datetime.now(tz=UTC)
+    provider = default_provider()
+    bars = provider.bars(ticker.upper(), end - timedelta(days=days), end, tf)
+    if bars.is_empty():
+        console.print(f"[yellow]No bars for {ticker.upper()}.[/]")
+        raise typer.Exit(code=0)
+
+    console.print(
+        f"\n[bold]{ticker.upper()}[/] {tf.value} {scanner} — training meta-filter on "
+        f"{len(bars)} bars..."
+    )
+    signals = SignalEngine(make_strategy(scanner)).scan(bars, provider.capabilities())
+    mf, result = train_meta_filter(
+        signals, bars, max_hold_bars=max_hold, min_samples=50
+    )
+
+    if result.insufficient:
+        console.print(f"[yellow]Cannot train meta-filter: {result.reason}[/]")
+        raise typer.Exit(code=0)
+
+    summary = Table(show_header=False, box=None)
+    summary.add_row("Signals labeled", str(result.n_samples))
+    summary.add_row("Positive rate (target-first)", f"{result.pos_rate:.1%}")
+    summary.add_row("CV accuracy", f"{result.cv_accuracy:.1%}")
+    summary.add_row("CV precision", f"{result.cv_precision:.1%}")
+    summary.add_row("CV recall", f"{result.cv_recall:.1%}")
+    summary.add_row("CV ROC-AUC", f"{result.cv_roc_auc:.3f}")
+    console.print(summary)
+
+    ft = Table(title="Top meta-filter features (permutation importance)")
+    ft.add_column("Feature")
+    ft.add_column("Importance", justify="right")
+    for feature, val in result.feature_importance[:10]:
+        ft.add_row(feature, f"{val:.4f}")
+    console.print(ft)
+
+    out_path = Path(out_dir)
+    out_path.mkdir(parents=True, exist_ok=True)
+    model_file = out_path / f"{ticker.upper()}_{scanner}.joblib"
+    joblib.dump(mf, model_file)
+    console.print(
+        f"Saved meta-filter → [green]{model_file}[/]\n"
+        "Use it with: [bold]intradayx scan/backtest ... "
+        f"--meta-filter {model_file} --meta-threshold 0.6[/]"
+    )
+
+
+@app.command()
+def forward(
+    ticker: str,
+    timeframe: str = typer.Option("5m", help="Bar interval"),
+    days: int = typer.Option(120, help="Total days of history to walk forward over"),
+    train_days: int = typer.Option(40, help="Training window length in days"),
+    test_days: int = typer.Option(10, help="Out-of-sample window length in days"),
+    step_days: int = typer.Option(10, help="How far to roll forward each window"),
+    scanner: str = typer.Option("reversal", help="Scanner: reversal | scalping"),
+    max_hold: int = typer.Option(24, help="Max bars to hold a signal"),
+    quality_threshold: float = typer.Option(
+        0.0, "--quality-threshold", help="Minimum deterministic quality score"
+    ),
+    meta_threshold: float = typer.Option(
+        0.5, "--meta-threshold", help="Minimum learned meta score to trade"
+    ),
+    out_dir: str = typer.Option(
+        "data/meta_filters", "--out", help="Directory to save the final rolled model"
+    ),
+) -> None:
+    """Forward-learning: train meta-filter on past windows, trade OOS windows."""
+    from pathlib import Path
+
+    import joblib
+
+    from intradayx.signals.forward import forward_learn
+
+    if scanner not in ("reversal", "scalping"):
+        raise typer.BadParameter("scanner must be 'reversal' or 'scalping'")
+
+    tf = Timeframe(timeframe)
+    end = datetime.now(tz=UTC)
+    provider = default_provider()
+    bars = provider.bars(ticker.upper(), end - timedelta(days=days), end, tf)
+    if bars.is_empty():
+        console.print(f"[yellow]No bars for {ticker.upper()}.[/]")
+        raise typer.Exit(code=0)
+
+    console.print(
+        f"\n[bold]{ticker.upper()}[/] {tf.value} {scanner} — forward-learning: "
+        f"train={train_days}d, test={test_days}d, step={step_days}d"
+    )
+    res = forward_learn(
+        bars,
+        provider.capabilities(),
+        scanner=scanner,
+        total_days=days,
+        train_days=train_days,
+        test_days=test_days,
+        step_days=step_days,
+        max_hold_bars=max_hold,
+        quality_threshold=quality_threshold,
+        meta_threshold=meta_threshold,
+        min_samples=30,
+    )
+
+    wt = Table(title="Out-of-sample windows")
+    for col in ("Window", "Train", "Test", "Train sigs", "Test sigs", "Trades", "Win rate", "P&L"):
+        wt.add_column(col, justify="right")
+    for w in res.windows:
+        wt.add_row(
+            str(w.index),
+            f"{w.train_start:%m-%d}",
+            f"{w.test_start:%m-%d}",
+            str(w.n_train_signals),
+            str(w.n_test_signals),
+            str(w.n_test_trades),
+            f"{w.test_win_rate:.0%}" if w.n_test_trades else "-",
+            _usd(w.test_pnl_cents),
+        )
+    console.print(wt)
+
+    console.print(
+        f"\nAggregated OOS: [bold]{res.n_oos_trades}[/] trades from "
+        f"{res.n_oos_signals} signals, win rate [bold]{res.oos_accuracy:.1%}[/], "
+        f"P&L [bold]{_usd(res.oos_pnl_cents)}[/]"
+    )
+
+    if res.final_model is not None and res.final_model.is_fitted:
+        out_path = Path(out_dir)
+        out_path.mkdir(parents=True, exist_ok=True)
+        model_file = out_path / f"{ticker.upper()}_{scanner}_forward.joblib"
+        joblib.dump(res.final_model, model_file)
+        console.print(f"Saved final rolled model → [green]{model_file}[/]")
+
+    console.print(
+        "[dim]This is the honest number: every prediction was made after training "
+        "only on earlier data. If win rate is weak, the model is telling you the "
+        "signal does not generalise on this data/history.[/]"
     )
 
 

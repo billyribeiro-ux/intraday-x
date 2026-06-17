@@ -24,8 +24,10 @@ frontend/.vercel/
 
 # --- Data lake (local only; never commit market data) ---
 /data/
+backend/data/
 *.duckdb
 *.parquet
+*.joblib
 
 # --- Secrets ---
 .env

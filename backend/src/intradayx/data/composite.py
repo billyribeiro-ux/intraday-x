@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 
 def required_capability(timeframe: Timeframe) -> Capability:
     """The capability a provider needs to serve bars at ``timeframe``."""
-    if timeframe == Timeframe.D1:
+    if not timeframe.is_intraday:
         return Capability.DAILY_BARS
     if timeframe == Timeframe.M1:
         return Capability.INTRADAY_BARS_1M

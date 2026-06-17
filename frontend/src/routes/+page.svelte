@@ -1,38 +1,90 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 
-	import type {
-		CandlestickData,
-		HistogramData,
-		LineData,
-		SeriesMarker,
-		UTCTimestamp
-	} from 'lightweight-charts';
-
 	import { getBars, scan } from '$lib/api/client';
-	import type { BarsPayload, ScanPayload, Signal } from '$lib/api/types';
+	import { getSettings } from '$lib/api/settings';
+	import type { BarsPayload, ScanPayload, Scanner, Signal } from '$lib/api/types';
 	import PriceChart from '$lib/chart/PriceChart.svelte';
+	import { timeframeToSeconds } from '$lib/chart/time';
 	import ConnectionStatus from '$lib/components/ConnectionStatus.svelte';
 	import SignalTable from '$lib/components/SignalTable.svelte';
+	import { FmpLiveStore, type FmpAssetClass } from '$lib/realtime/fmp-live.svelte';
 	import { SignalStore } from '$lib/realtime/signal-store.svelte';
 
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
+	// svelte-ignore state_referenced_locally
+	const initialSymbol = data.symbol ?? 'AAPL';
+	// svelte-ignore state_referenced_locally
+	const initialTimeframe = data.timeframe ?? '5m';
+	// svelte-ignore state_referenced_locally
+	const initialDays = data.days ?? 7;
 
-	const timeframes = ['1m', '5m', '15m', '30m', '1h', '1d'];
+	const timeframes = [
+		'1m',
+		'2m',
+		'3m',
+		'4m',
+		'5m',
+		'10m',
+		'15m',
+		'30m',
+		'1h',
+		'2h',
+		'4h',
+		'1d',
+		'1w',
+		'1mo',
+		'3mo',
+		'1y'
+	];
 
-	// Form state: the symbol/timeframe the user is about to load (seeded from the
-	// loader defaults on first mount via onMount → loadData).
-	let symbol = $state('AAPL');
-	let timeframe = $state('5m');
+	const ranges: { label: string; days: number }[] = [
+		{ label: '1D', days: 1 },
+		{ label: '5D', days: 5 },
+		{ label: '1M', days: 30 },
+		{ label: '3M', days: 90 },
+		{ label: '6M', days: 180 },
+		{ label: '1Y', days: 365 },
+		{ label: '2Y', days: 730 },
+		{ label: '3Y', days: 1095 },
+		{ label: '5Y', days: 1825 },
+		{ label: 'MAX', days: 36500 }
+	];
+
+	const scanners: { value: Scanner; label: string }[] = [
+		{ value: 'reversal', label: 'Reversal' },
+		{ value: 'scalping', label: 'Scalping' }
+	];
+
+	const assetClasses: { label: string; value: FmpAssetClass }[] = [
+		{ label: 'Stock', value: 'stock' },
+		{ label: 'Crypto', value: 'crypto' },
+		{ label: 'Forex', value: 'forex' }
+	];
+
+	// Form state seeded from the loader.
+	let symbol = $state(initialSymbol);
+	let timeframe = $state(initialTimeframe);
+	let range = $state(initialDays);
+	let scanner = $state<Scanner>('reversal');
+	let assetClass = $state<FmpAssetClass>('stock');
 	// What the currently-shown data is actually FOR (set after a successful load).
-	let loaded = $state({ symbol: 'AAPL', timeframe: '5m' });
+	let loaded = $state({ symbol: initialSymbol, timeframe: initialTimeframe });
 
-	const store = new SignalStore();
+	const signalStore = new SignalStore();
 	$effect(() => {
-		store.connect();
-		return () => store.destroy();
+		signalStore.connect();
+		return () => signalStore.destroy();
+	});
+
+	const fmpStore = new FmpLiveStore();
+	$effect(() => {
+		if (loaded.symbol && loaded.timeframe) {
+			void fmpStore.connect(loaded.symbol, assetClass);
+		}
+		return () => fmpStore.disconnect();
 	});
 
 	type LoadState = 'loading' | 'ready' | 'error';
@@ -41,9 +93,20 @@
 	let bars = $state<BarsPayload | null>(null);
 	let scanResult = $state<ScanPayload | null>(null);
 
+	async function initFromSettings() {
+		try {
+			const settings = await getSettings();
+			if (settings.default_scanner === 'reversal' || settings.default_scanner === 'scalping') {
+				scanner = settings.default_scanner;
+			}
+		} catch {
+			// ignore; default reversal is fine
+		}
+	}
+
 	async function loadData() {
 		const sym = symbol.trim().toUpperCase();
-		if (!/^[A-Za-z.\-]{1,8}$/.test(sym)) {
+		if (!/^[A-Za-z.\-/]{1,12}$/.test(sym)) {
 			loadError = 'Enter a valid ticker (e.g. SPY).';
 			loadState = 'error';
 			return;
@@ -53,8 +116,8 @@
 		loadError = null;
 		try {
 			const [b, s] = await Promise.all([
-				getBars(fetch, sym, timeframe, data.days),
-				scan(fetch, sym, timeframe, data.days)
+				getBars(fetch, sym, timeframe, range),
+				scan(fetch, sym, timeframe, range, scanner)
 			]);
 			bars = b;
 			scanResult = s;
@@ -71,13 +134,16 @@
 		void loadData();
 	}
 
-	onMount(loadData);
+	onMount(() => {
+		void initFromSettings();
+		void loadData();
+	});
 
 	// Merge live (newest) + historical for the LOADED symbol, deduped by id.
 	const signals = $derived.by(() => {
 		const seen = new Set<string>();
 		const out: Signal[] = [];
-		for (const s of [...store.signals, ...(scanResult?.signals ?? [])]) {
+		for (const s of [...signalStore.signals, ...(scanResult?.signals ?? [])]) {
 			if (s.symbol === loaded.symbol && !seen.has(s.signal_id)) {
 				seen.add(s.signal_id);
 				out.push(s);
@@ -86,20 +152,29 @@
 		return out;
 	});
 
-	// API returns Lightweight-Charts-ready shapes (epoch-second time); cast at the
-	// boundary. Empty until the data loads.
-	const candles = $derived((bars?.candles ?? []) as unknown as CandlestickData<UTCTimestamp>[]);
-	const volume = $derived((bars?.volume ?? []) as unknown as HistogramData<UTCTimestamp>[]);
-	const vwap = $derived((bars?.vwap ?? []) as unknown as LineData<UTCTimestamp>[]);
-	const markers = $derived(
-		(bars?.markers ?? []).map((m) => ({
-			time: m.time as UTCTimestamp,
-			position: m.position,
-			shape: m.shape,
-			color: m.color,
-			text: m.text
-		})) as SeriesMarker<UTCTimestamp>[]
-	);
+	// Live candles: apply the latest FMP tick to the current bar only.
+	// We do not synthesize new bars because we have no live volume/VWAP for them.
+	const liveCandles = $derived.by(() => {
+		const base = bars?.candles ?? [];
+		if (!base.length || !fmpStore.lastTick) return base;
+		const tickTsSeconds = Math.floor(fmpStore.lastTick.ts / 1000);
+		const interval = timeframeToSeconds(loaded.timeframe);
+		const currentBarStart = Math.floor(base[base.length - 1].time / interval) * interval;
+		const tickBarStart = Math.floor(tickTsSeconds / interval) * interval;
+		if (tickBarStart !== currentBarStart) return base;
+		const copy = base.slice();
+		const last = { ...copy[copy.length - 1] };
+		last.close = fmpStore.lastTick.price;
+		last.high = Math.max(last.high, fmpStore.lastTick.price);
+		last.low = Math.min(last.low, fmpStore.lastTick.price);
+		copy[copy.length - 1] = last;
+		return copy;
+	});
+
+	const candles = $derived(liveCandles);
+	const volume = $derived(bars?.volume ?? []);
+	const vwap = $derived(bars?.vwap ?? []);
+	const markers = $derived(bars?.markers ?? []);
 </script>
 
 <section class="monitor">
@@ -110,7 +185,7 @@
 				type="text"
 				autocomplete="off"
 				spellcheck="false"
-				maxlength="8"
+				maxlength="12"
 				bind:value={symbol}
 				placeholder="Ticker"
 				aria-label="Ticker"
@@ -120,10 +195,33 @@
 					<option value={tf}>{tf}</option>
 				{/each}
 			</select>
+			<select bind:value={range} aria-label="Range">
+				{#each ranges as r (r.days)}
+					<option value={r.days}>{r.label}</option>
+				{/each}
+			</select>
+			<select bind:value={scanner} aria-label="Scanner">
+				{#each scanners as s (s.value)}
+					<option value={s.value}>{s.label}</option>
+				{/each}
+			</select>
+			<select bind:value={assetClass} aria-label="Asset class" title="FMP live feed asset class">
+				{#each assetClasses as ac (ac.value)}
+					<option value={ac.value}>{ac.label}</option>
+				{/each}
+			</select>
 			<button type="submit" disabled={loadState === 'loading'}>Load</button>
-			<span class="scanner-label">reversal scanner</span>
 		</form>
-		<ConnectionStatus state={store.status} source={store.serverStatus?.source} />
+		<div class="status-group">
+			{#if fmpStore.status === 'connecting'}
+				<span class="live-dot connecting" title="FMP live feed connecting…"></span>
+			{:else if fmpStore.status === 'open'}
+				<span class="live-dot" title="FMP live feed connected"></span>
+			{:else if fmpStore.status === 'error'}
+				<span class="live-dot error" title="FMP live feed: {fmpStore.error ?? 'disconnected'}"></span>
+			{/if}
+			<ConnectionStatus state={signalStore.status} source={signalStore.serverStatus?.source} />
+		</div>
 	</div>
 
 	{#if loadState === 'loading'}
@@ -144,7 +242,7 @@
 		</div>
 
 		<div class="signals-area">
-			<h2>{loaded.symbol} · {loaded.timeframe} signals ({signals.length})</h2>
+			<h2>{loaded.symbol} · {loaded.timeframe} · {scanner} signals ({signals.length})</h2>
 			<div class="signals-scroll">
 				<SignalTable {signals} />
 			</div>
@@ -175,6 +273,7 @@
 		display: flex;
 		align-items: center;
 		gap: 0.5rem;
+		flex-wrap: wrap;
 	}
 	.picker input,
 	.picker select {
@@ -212,10 +311,35 @@
 		opacity: 0.55;
 		cursor: not-allowed;
 	}
-	.scanner-label {
-		color: var(--muted);
-		font-size: 0.8rem;
-		margin-left: 0.25rem;
+	.status-group {
+		display: flex;
+		align-items: center;
+		gap: 0.6rem;
+	}
+	.live-dot {
+		width: 9px;
+		height: 9px;
+		border-radius: 50%;
+		background: #3fb950;
+		box-shadow: 0 0 6px #3fb950;
+	}
+	.live-dot.connecting {
+		background: #e3b341;
+		box-shadow: 0 0 6px #e3b341;
+		animation: pulse 1s ease-in-out infinite;
+	}
+	.live-dot.error {
+		background: #f85149;
+		box-shadow: 0 0 6px #f85149;
+	}
+	@keyframes pulse {
+		0%,
+		100% {
+			opacity: 1;
+		}
+		50% {
+			opacity: 0.4;
+		}
 	}
 	/* Chart grows to fill most of the window; the signals panel scrolls below it. */
 	.chart-area {

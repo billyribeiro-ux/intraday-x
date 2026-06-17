@@ -7,9 +7,12 @@ from the command line.
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime, timedelta
 from functools import lru_cache
+from pathlib import Path
 
+from intradayx.api import settings_store
 from intradayx.api.schemas import (
     BacktestResponse,
     BarsResponse,
@@ -29,9 +32,12 @@ from intradayx.backtest.runner import run_backtest
 from intradayx.data.factory import default_provider
 from intradayx.data.provider import DataProvider
 from intradayx.domain.bars import Timeframe
-from intradayx.domain.capabilities import Capability
+from intradayx.domain.capabilities import Capability, ProviderCapabilities
 from intradayx.features.pipeline import build_features
 from intradayx.signals.engine import SignalEngine
+from intradayx.signals.meta_filter import MetaFilter
+
+logger = logging.getLogger(__name__)
 
 
 @lru_cache(maxsize=1)
@@ -44,8 +50,42 @@ def get_engine() -> SignalEngine:
     return SignalEngine()
 
 
+def _meta_filter_for(symbol: str, scanner: str) -> MetaFilter | None:
+    """Load a persisted MetaFilter for the symbol/scanner if one exists."""
+    models_dir = Path(settings_store.app_data_dir()) / "models"
+    candidates = (
+        f"{symbol.upper()}_{scanner}_forward.joblib",
+        f"{symbol.upper()}_{scanner}.joblib",
+    )
+    for name in candidates:
+        path = models_dir / name
+        if path.exists():
+            try:
+                mf = MetaFilter.load(path)
+                if mf is not None and mf.is_fitted:
+                    logger.info("loaded meta-filter: %s", path)
+                    return mf
+            except Exception:
+                logger.warning("failed to load meta-filter %s", path, exc_info=True)
+    return None
+
+
 def _epoch(ts: datetime) -> int:
     return int(ts.timestamp())
+
+
+def _clamped_start(end: datetime, days: int, caps: ProviderCapabilities, tf: Timeframe) -> datetime:
+    """Return the start time, clamped to what the active provider can serve.
+
+    For very large ``days`` (e.g. "max" = 36500) we fetch as far back as the
+    provider's declared lookback instead of raising a lookback error.
+    """
+    requested = end - timedelta(days=days)
+    window = caps.lookback_for(tf)
+    if window is None:
+        return requested
+    earliest = end - window - timedelta(days=1)
+    return max(requested, earliest)
 
 
 def run_scan(symbol: str, timeframe: str, days: int, scanner: str = "reversal") -> ScanResponse:
@@ -56,10 +96,12 @@ def run_scan(symbol: str, timeframe: str, days: int, scanner: str = "reversal") 
     tf = Timeframe(timeframe)
     provider = get_provider()
     end = datetime.now(tz=UTC)
-    bars = provider.bars(symbol.upper(), end - timedelta(days=days), end, tf)
     caps = provider.capabilities()
+    start = _clamped_start(end, days, caps, tf)
+    bars = provider.bars(symbol.upper(), start, end, tf)
 
-    signals = SignalEngine(make_strategy(scanner)).scan(bars, caps)
+    meta_filter = _meta_filter_for(symbol, scanner)
+    signals = SignalEngine(make_strategy(scanner), meta_filter=meta_filter).scan(bars, caps)
     if caps.supports(Capability.EARNINGS_CALENDAR):
         from intradayx.attribution.catalysts import enrich_with_earnings
 
@@ -73,12 +115,15 @@ def run_scan(symbol: str, timeframe: str, days: int, scanner: str = "reversal") 
     )
 
 
-def build_chart(symbol: str, timeframe: str, days: int) -> BarsResponse:
+def build_chart(symbol: str, timeframe: str, days: int, scanner: str = "reversal") -> BarsResponse:
+    from intradayx.signals.strategy import make_strategy
+
     tf = Timeframe(timeframe)
     provider = get_provider()
     end = datetime.now(tz=UTC)
-    bars = provider.bars(symbol.upper(), end - timedelta(days=days), end, tf)
     caps = provider.capabilities()
+    start = _clamped_start(end, days, caps, tf)
+    bars = provider.bars(symbol.upper(), start, end, tf)
 
     if bars.is_empty():
         return BarsResponse(
@@ -124,7 +169,8 @@ def build_chart(symbol: str, timeframe: str, days: int) -> BarsResponse:
     if last.get("prior_poc") is not None:
         levels = LevelsDTO(poc=last["prior_poc"], vah=last["prior_vah"], val=last["prior_val"])
 
-    signals = get_engine().evaluate(fs)
+    meta_filter = _meta_filter_for(symbol, scanner)
+    signals = SignalEngine(make_strategy(scanner), meta_filter=meta_filter).evaluate(fs)
     markers: list[MarkerDTO] = []
     for s in sorted(signals, key=lambda x: x.ts):
         buy = s.side.is_bullish
@@ -134,7 +180,7 @@ def build_chart(symbol: str, timeframe: str, days: int) -> BarsResponse:
                 position="belowBar" if buy else "aboveBar",
                 shape="arrowUp" if buy else "arrowDown",
                 color="#3fb950" if buy else "#f85149",
-                text=s.kind.value.replace("reversal_", ""),
+                text=s.kind.value.replace("reversal_", "").replace("scalp_", ""),
             )
         )
 
@@ -160,10 +206,13 @@ def run_backtest_dto(
     tf = Timeframe(timeframe)
     provider = get_provider()
     end = datetime.now(tz=UTC)
-    bars = provider.bars(symbol.upper(), end - timedelta(days=days), end, tf)
+    caps = provider.capabilities()
+    start = _clamped_start(end, days, caps, tf)
+    bars = provider.bars(symbol.upper(), start, end, tf)
     # Build the engine for the CHOSEN scanner (mirrors run_scan), not the cached
     # default-reversal engine — so the backtest actually runs the selected scanner.
-    engine = SignalEngine(make_strategy(scanner))
+    meta_filter = _meta_filter_for(symbol, scanner)
+    engine = SignalEngine(make_strategy(scanner), meta_filter=meta_filter)
     res = run_backtest(bars, provider.capabilities(), engine=engine, max_hold_bars=max_hold)
     m = res.metrics
 

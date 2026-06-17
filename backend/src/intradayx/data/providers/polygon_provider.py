@@ -38,13 +38,24 @@ _BASE = "https://api.polygon.io"
 _DEEP = timedelta(days=1825)  # ~5y; the tier caps what's actually returned
 
 # Timeframe -> (multiplier, timespan) for the aggregates endpoint.
+# Polygon supports arbitrary minute multipliers and hour/day/week/month/quarter/year.
 _AGG: dict[Timeframe, tuple[int, str]] = {
     Timeframe.M1: (1, "minute"),
+    Timeframe.M2: (2, "minute"),
+    Timeframe.M3: (3, "minute"),
+    Timeframe.M4: (4, "minute"),
     Timeframe.M5: (5, "minute"),
+    Timeframe.M10: (10, "minute"),
     Timeframe.M15: (15, "minute"),
     Timeframe.M30: (30, "minute"),
     Timeframe.H1: (1, "hour"),
+    Timeframe.H2: (2, "hour"),
+    Timeframe.H4: (4, "hour"),
     Timeframe.D1: (1, "day"),
+    Timeframe.W1: (1, "week"),
+    Timeframe.MO1: (1, "month"),
+    Timeframe.MO3: (3, "month"),
+    Timeframe.Y1: (1, "year"),
 }
 
 
@@ -69,7 +80,22 @@ class PolygonProvider(DataProvider):
                     Capability.PREPOST_MARKET,
                 }
             ),
-            max_intraday_lookback={tf: _DEEP for tf in (Timeframe.M1, Timeframe.M5, Timeframe.H1)},
+            max_intraday_lookback={
+                tf: _DEEP
+                for tf in (
+                    Timeframe.M1,
+                    Timeframe.M2,
+                    Timeframe.M3,
+                    Timeframe.M4,
+                    Timeframe.M5,
+                    Timeframe.M10,
+                    Timeframe.M15,
+                    Timeframe.M30,
+                    Timeframe.H1,
+                    Timeframe.H2,
+                    Timeframe.H4,
+                )
+            },
             rate_limit_hint="free tier: 5 req/min, ~2yr; paid tiers unlimited + deeper",
         )
 

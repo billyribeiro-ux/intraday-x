@@ -20,7 +20,17 @@ from intradayx.domain.capabilities import (
 )
 from intradayx.features.climax import add_climax
 from intradayx.features.gaps import add_gaps
-from intradayx.features.indicators import add_atr, add_rvol, add_vwap_session
+from intradayx.features.indicators import (
+    add_adx,
+    add_atr,
+    add_bar_strength,
+    add_momentum,
+    add_rvol,
+    add_trend_regime,
+    add_volume_delta_proxy,
+    add_vwap_extension,
+    add_vwap_session,
+)
 from intradayx.features.pivots import add_pivots
 from intradayx.features.session import add_session_columns
 from intradayx.features.squeeze import add_squeeze_signature
@@ -55,6 +65,15 @@ PRICE_VOLUME_FEATURES: tuple[str, ...] = (
     "climax_up_score",
     "climax_down_score",
     "squeeze_signature_score",
+    # quality/confirmation layer
+    "plus_di",
+    "minus_di",
+    "adx",
+    "trend_regime",
+    "bar_strength",
+    "volume_delta_proxy",
+    "momentum_3bar",
+    "vwap_extension",
 )
 
 
@@ -122,6 +141,13 @@ def build_features(bars: BarSet, caps: ProviderCapabilities) -> FeatureSet:
     df = add_vwap_session(df)
     df = add_rvol(df)
     df = add_atr(df)
+    # Quality / confirmation primitives (all optional downstream).
+    df = add_adx(df)
+    df = add_trend_regime(df)
+    df = add_bar_strength(df)
+    df = add_volume_delta_proxy(df)
+    df = add_momentum(df)
+    df = add_vwap_extension(df)
     df = add_volume_profile(df)
     df = add_gaps(df)
     df = add_pivots(df)

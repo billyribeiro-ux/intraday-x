@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 #
-# build_sidecar.sh — build the intraday-x Python engine into ONE self-contained
-# executable and install it as the Tauri sidecar.
+# build_sidecar.sh — build the intraday-x Python engine into a Tauri resource.
 # ============================================================================
 #
 # Output:
-#   src-tauri/binaries/intraday-engine-aarch64-apple-darwin
-# which is what Tauri's externalBin ("binaries/intraday-engine" + host triple)
-# spawns in the bundled/release app. After running this, `pnpm tauri build`
-# bundles, signs, and notarizes the engine alongside the app.
+#   src-tauri/binaries/engine
+# which Tauri ships via bundle.resources. The Rust core spawns
+#   Resources/engine/intraday-engine
+# in the bundled/release app. After running this, `pnpm tauri build` bundles,
+# signs, and notarizes the engine alongside the app.
 #
 # Prerequisites:
 #   - uv (https://docs.astral.sh/uv/) on PATH

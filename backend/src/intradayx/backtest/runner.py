@@ -76,6 +76,7 @@ def simulate_trades(
     h = df["high"].to_list()
     low = df["low"].to_list()
     c = df["close"].to_list()
+    volumes = df["volume"].to_list()
     idx_of = {t: i for i, t in enumerate(ts)}
     n = len(ts)
 
@@ -97,6 +98,9 @@ def simulate_trades(
         shares = int((notional_cents / 100.0) // entry)
         if shares <= 0:
             continue
+        shares = min(shares, fm.max_shares_for_liquidity(entry, volumes[entry_idx]))
+        if shares <= 0:
+            continue
         stop = sig.stop
         target = sig.targets[0] if sig.targets else None
 
@@ -105,21 +109,36 @@ def simulate_trades(
         exit_idx = min(entry_idx + max_hold_bars - 1, n - 1)
         exit_price = c[exit_idx]
         reason = ExitReason.TIME
-        for j in range(entry_idx, min(entry_idx + max_hold_bars - 1, n - 1) + 1):
-            if is_long:
-                if low[j] <= stop:
-                    exit_idx, exit_price, reason = j, stop, ExitReason.STOP
-                    break
-                if target is not None and h[j] >= target:
-                    exit_idx, exit_price, reason = j, target, ExitReason.TARGET
-                    break
-            else:
-                if h[j] >= stop:
-                    exit_idx, exit_price, reason = j, stop, ExitReason.STOP
-                    break
-                if target is not None and low[j] <= target:
-                    exit_idx, exit_price, reason = j, target, ExitReason.TARGET
-                    break
+
+        # Gap handling: if the entry bar opens through the stop/target, fill at
+        # the open (the realistic worst/best case) instead of the later stop price.
+        if is_long:
+            if o[entry_idx] <= stop:
+                exit_idx, exit_price, reason = entry_idx, o[entry_idx], ExitReason.STOP
+            elif target is not None and o[entry_idx] >= target:
+                exit_idx, exit_price, reason = entry_idx, o[entry_idx], ExitReason.TARGET
+        else:
+            if o[entry_idx] >= stop:
+                exit_idx, exit_price, reason = entry_idx, o[entry_idx], ExitReason.STOP
+            elif target is not None and o[entry_idx] <= target:
+                exit_idx, exit_price, reason = entry_idx, o[entry_idx], ExitReason.TARGET
+
+        if reason is ExitReason.TIME:
+            for j in range(entry_idx, min(entry_idx + max_hold_bars - 1, n - 1) + 1):
+                if is_long:
+                    if low[j] <= stop:
+                        exit_idx, exit_price, reason = j, stop, ExitReason.STOP
+                        break
+                    if target is not None and h[j] >= target:
+                        exit_idx, exit_price, reason = j, target, ExitReason.TARGET
+                        break
+                else:
+                    if h[j] >= stop:
+                        exit_idx, exit_price, reason = j, stop, ExitReason.STOP
+                        break
+                    if target is not None and low[j] <= target:
+                        exit_idx, exit_price, reason = j, target, ExitReason.TARGET
+                        break
 
         per_share = (exit_price - entry) if is_long else (entry - exit_price)
         gross_cents = round(per_share * shares * 100)
