@@ -17,7 +17,23 @@ import type { Scanner } from '$lib/api/types';
 
 type Fetch = typeof globalThis.fetch;
 
-export type Timeframe = '1m' | '5m' | '15m' | '30m' | '1h' | '1d';
+export type Timeframe =
+	| '1m'
+	| '2m'
+	| '3m'
+	| '4m'
+	| '5m'
+	| '10m'
+	| '15m'
+	| '30m'
+	| '1h'
+	| '2h'
+	| '4h'
+	| '1d'
+	| '1w'
+	| '1mo'
+	| '3mo'
+	| '1y';
 
 export interface BacktestParams {
 	symbol: string;

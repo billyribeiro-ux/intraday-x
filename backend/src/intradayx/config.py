@@ -41,7 +41,7 @@ class Settings(BaseSettings):
     # multi-year 1m since 2020) preferred for depth, yfinance (no key) as the
     # zero-setup floor. Polygon (pure data vendor) is preferred if its key is set.
     # No brokers — add new data vendors via register_provider + INTRADAYX_PROVIDERS.
-    providers: list[str] = ["polygon", "twelvedata", "yfinance"]
+    providers: list[str] = ["polygon", "twelvedata", "fmp", "yfinance"]
 
     # Live monitor.
     watched_symbols: list[str] = ["AAPL", "SPY"]

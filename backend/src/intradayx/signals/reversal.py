@@ -6,6 +6,9 @@ area-edge/POC confluence clears the threshold; a bottom is the mirror. Output is
 a Polars frame of triggered bars (with each component score retained for honest
 attribution). :class:`~intradayx.signals.engine.SignalEngine` turns rows into
 ``Signal`` objects — and the SAME frame logic runs in backtest and live.
+
+v0.2 adds a signal-quality layer: minimum R:R, price-extension limits, cooldown,
+and a hard block on fading a strong trending regime.
 """
 
 from __future__ import annotations
@@ -26,6 +29,7 @@ from intradayx.attribution.engine import reversal_attribution
 from intradayx.domain.signals import Attribution, SignalKind
 from intradayx.features.pipeline import FeatureSet
 from intradayx.signals.params import ReversalParams
+from intradayx.signals.quality import ensure_quality_columns, quality_score_expr
 
 # Unified column order for a triggered-signal row (top or bottom).
 SIGNAL_COLUMNS = (
@@ -42,7 +46,68 @@ SIGNAL_COLUMNS = (
     "c_volume",
     "c_value_area",
     "c_poc",
+    "quality_score",
 )
+
+
+def _extension_expr() -> pl.Expr:
+    """Fallback extension when the pre-computed column is absent (e.g. tests)."""
+    return pl.col("vwap_extension").fill_null(
+        (pl.col("close") - pl.col("vwap_session")) / pl.col("atr").clip(lower_bound=1e-9)
+    )
+
+
+def _adx_expr() -> pl.Expr:
+    return pl.col("adx").fill_null(0.0)
+
+
+def _trend_expr() -> pl.Expr:
+    return pl.col("trend_regime").fill_null("range")
+
+
+def _quality_filter(df: pl.DataFrame, p: ReversalParams) -> pl.DataFrame:
+    """Enforce R:R, extension bounds, and strong-trend avoidance."""
+    stop_dist = (pl.col("stop") - pl.col("entry")).abs().clip(lower_bound=1e-9)
+    target_dist = (pl.col("target1") - pl.col("entry")).abs()
+    rr = target_dist / stop_dist
+    extension = _extension_expr().abs()
+    adx = _adx_expr()
+    trend = _trend_expr()
+
+    return df.filter(
+        (rr >= p.min_rr)
+        & (extension >= p.extension_min_atr)
+        & (extension <= p.extension_max_atr)
+        & ~(
+            (pl.col("kind") == SignalKind.REVERSAL_TOP.value)
+            & (trend == pl.lit("bull"))
+            & (adx >= p.counter_trend_adx_threshold)
+        )
+        & ~(
+            (pl.col("kind") == SignalKind.REVERSAL_BOTTOM.value)
+            & (trend == pl.lit("bear"))
+            & (adx >= p.counter_trend_adx_threshold)
+        )
+    )
+
+
+def _apply_cooldown(df: pl.DataFrame, cooldown_bars: int) -> pl.DataFrame:
+    """Keep the first signal per side, then silence any within ``cooldown_bars``."""
+    if cooldown_bars <= 0 or df.is_empty():
+        return df
+    df = df.with_columns(_idx=pl.int_range(0, pl.len(), dtype=pl.Int64))
+    rows = list(df.iter_rows(named=True))
+    kept: list[dict[str, Any]] = []
+    last_idx: dict[str, int] = {}
+    for row in rows:
+        side = row["side"]
+        idx = row["_idx"]
+        if idx - last_idx.get(side, -cooldown_bars - 1) > cooldown_bars:
+            kept.append(row)
+            last_idx[side] = idx
+    if not kept:
+        return df.head(0).select(SIGNAL_COLUMNS)
+    return pl.DataFrame(kept).select(SIGNAL_COLUMNS)
 
 
 def reversal_signal_frame(fs: FeatureSet, params: ReversalParams) -> pl.DataFrame:
@@ -70,6 +135,8 @@ def reversal_signal_frame(fs: FeatureSet, params: ReversalParams) -> pl.DataFram
         ),
     )
 
+    df = ensure_quality_columns(df)
+
     tops = (
         df.filter(pl.col("confirmed_swing_high") & (pl.col("confluence_top") >= p.threshold))
         .with_columns(
@@ -83,7 +150,7 @@ def reversal_signal_frame(fs: FeatureSet, params: ReversalParams) -> pl.DataFram
             c_climax=pl.col("c_climax_top"),
             c_value_area=pl.col("c_vae_top"),
         )
-        .select(SIGNAL_COLUMNS)
+        .with_columns(quality_score=quality_score_expr())
     )
 
     bottoms = (
@@ -99,10 +166,12 @@ def reversal_signal_frame(fs: FeatureSet, params: ReversalParams) -> pl.DataFram
             c_climax=pl.col("c_climax_bottom"),
             c_value_area=pl.col("c_vae_bottom"),
         )
-        .select(SIGNAL_COLUMNS)
+        .with_columns(quality_score=quality_score_expr())
     )
 
-    return pl.concat([tops, bottoms]).sort("ts")
+    triggered = pl.concat([tops, bottoms]).sort("ts")
+    quality = _quality_filter(triggered, p)
+    return _apply_cooldown(quality, p.cooldown_bars)
 
 
 class ReversalStrategy:

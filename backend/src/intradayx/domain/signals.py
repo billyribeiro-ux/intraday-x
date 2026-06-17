@@ -161,6 +161,8 @@ class Signal:
     triggered_rules: tuple[str, ...] = ()
     params_version: str = "0"
     feature_snapshot: dict[str, float] = field(default_factory=dict)
+    quality_score: float = 1.0  # deterministic strategy quality score (0–1)
+    meta_score: float | None = None  # learned meta-filter score (0–1), None until fitted
 
     @classmethod
     def create(
@@ -179,6 +181,8 @@ class Signal:
         triggered_rules: tuple[str, ...] = (),
         params_version: str = "0",
         feature_snapshot: dict[str, float] | None = None,
+        quality_score: float = 1.0,
+        meta_score: float | None = None,
     ) -> Signal:
         """Build a Signal, deriving the deterministic ``signal_id``."""
         return cls(
@@ -196,4 +200,6 @@ class Signal:
             triggered_rules=triggered_rules,
             params_version=params_version,
             feature_snapshot=feature_snapshot or {},
+            quality_score=quality_score,
+            meta_score=meta_score,
         )

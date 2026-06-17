@@ -4,6 +4,9 @@ Discrete momentum entries (not every bar): a VWAP reclaim/rejection OR an
 Initial-Balance breakout, confirmed by relative volume + a directional bar.
 Tight ATR-based stop and targets. Same universal SIGNAL columns as the reversal
 strategy, so the backtester/export/API/dashboard all reuse it unchanged.
+
+v0.2 adds a quality layer: minimum R:R, max extension (don't chase), cooldown,
+and a hard skip when trying to scalp against a strong ADX trend.
 """
 
 from __future__ import annotations
@@ -16,6 +19,7 @@ from intradayx.attribution.engine import scalping_attribution
 from intradayx.domain.signals import Attribution, SignalKind
 from intradayx.features.pipeline import FeatureSet
 from intradayx.signals.params import ScalpingParams
+from intradayx.signals.quality import ensure_quality_columns, quality_score_expr
 
 SCALP_COLUMNS = (
     "ts",
@@ -31,7 +35,65 @@ SCALP_COLUMNS = (
     "c_volume",
     "c_momentum",
     "c_breakout",
+    "quality_score",
 )
+
+
+def _extension_expr() -> pl.Expr:
+    return pl.col("vwap_extension").fill_null(
+        (pl.col("close") - pl.col("vwap_session")) / pl.col("atr").clip(lower_bound=1e-9)
+    )
+
+
+def _adx_expr() -> pl.Expr:
+    return pl.col("adx").fill_null(0.0)
+
+
+def _trend_expr() -> pl.Expr:
+    return pl.col("trend_regime").fill_null("range")
+
+
+def _quality_filter(df: pl.DataFrame, p: ScalpingParams) -> pl.DataFrame:
+    """Enforce R:R, extension cap, and trend alignment."""
+    stop_dist = (pl.col("stop") - pl.col("entry")).abs().clip(lower_bound=1e-9)
+    target_dist = (pl.col("target1") - pl.col("entry")).abs()
+    rr = target_dist / stop_dist
+    extension_abs = _extension_expr().abs()
+    adx = _adx_expr()
+    trend = _trend_expr()
+
+    return df.filter(
+        (rr >= p.min_rr)
+        & (extension_abs <= p.max_extension_atr)
+        & ~(
+            (pl.col("kind") == SignalKind.SCALP_LONG.value)
+            & (trend == pl.lit("bear"))
+            & (adx >= p.trend_align_adx_threshold)
+        )
+        & ~(
+            (pl.col("kind") == SignalKind.SCALP_SHORT.value)
+            & (trend == pl.lit("bull"))
+            & (adx >= p.trend_align_adx_threshold)
+        )
+    )
+
+
+def _apply_cooldown(df: pl.DataFrame, cooldown_bars: int) -> pl.DataFrame:
+    if cooldown_bars <= 0 or df.is_empty():
+        return df
+    df = df.with_columns(_idx=pl.int_range(0, pl.len(), dtype=pl.Int64))
+    rows = list(df.iter_rows(named=True))
+    kept: list[dict[str, Any]] = []
+    last_idx: dict[str, int] = {}
+    for row in rows:
+        side = row["side"]
+        idx = row["_idx"]
+        if idx - last_idx.get(side, -cooldown_bars - 1) > cooldown_bars:
+            kept.append(row)
+            last_idx[side] = idx
+    if not kept:
+        return df.head(0).select(SCALP_COLUMNS)
+    return pl.DataFrame(kept).select(SCALP_COLUMNS)
 
 
 def scalping_signal_frame(fs: FeatureSet, params: ScalpingParams) -> pl.DataFrame:
@@ -76,6 +138,8 @@ def scalping_signal_frame(fs: FeatureSet, params: ScalpingParams) -> pl.DataFram
         | (ib_low.is_not_null() & (close < ib_low) & (prev_close >= ib_low)),
     )
 
+    df = ensure_quality_columns(df)
+
     longs = (
         df.filter(pl.col("long_trig") & (pl.col("conf_long") >= p.threshold))
         .with_columns(
@@ -90,7 +154,7 @@ def scalping_signal_frame(fs: FeatureSet, params: ScalpingParams) -> pl.DataFram
             c_momentum=pl.col("c_mom_long"),
             c_breakout=pl.col("c_brk_long"),
         )
-        .select(SCALP_COLUMNS)
+        .with_columns(quality_score=quality_score_expr())
     )
     shorts = (
         df.filter(pl.col("short_trig") & (pl.col("conf_short") >= p.threshold))
@@ -106,9 +170,12 @@ def scalping_signal_frame(fs: FeatureSet, params: ScalpingParams) -> pl.DataFram
             c_momentum=pl.col("c_mom_short"),
             c_breakout=pl.col("c_brk_short"),
         )
-        .select(SCALP_COLUMNS)
+        .with_columns(quality_score=quality_score_expr())
     )
-    return pl.concat([longs, shorts]).sort("ts")
+
+    triggered = pl.concat([longs, shorts]).sort("ts")
+    quality = _quality_filter(triggered, p)
+    return _apply_cooldown(quality, p.cooldown_bars)
 
 
 class ScalpingStrategy:

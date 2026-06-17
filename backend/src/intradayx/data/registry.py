@@ -14,6 +14,7 @@ from collections.abc import Callable
 from intradayx.config import Settings, get_settings
 from intradayx.data.composite import CompositeProvider
 from intradayx.data.provider import DataProvider
+from intradayx.data.providers.fmp_provider import FmpProvider
 from intradayx.data.providers.polygon_provider import PolygonProvider
 from intradayx.data.providers.twelvedata_provider import TwelveDataProvider
 from intradayx.data.providers.yfinance_provider import YFinanceProvider
@@ -36,6 +37,7 @@ def registered_names() -> list[str]:
 register_provider("yfinance", YFinanceProvider)
 register_provider("twelvedata", TwelveDataProvider)
 register_provider("polygon", PolygonProvider)
+register_provider("fmp", FmpProvider)
 
 
 def build_provider(settings: Settings | None = None) -> DataProvider:

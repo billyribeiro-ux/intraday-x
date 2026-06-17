@@ -13,7 +13,24 @@
 
 	const uid = $props.id();
 
-	const timeframes: Timeframe[] = ['1m', '5m', '15m', '30m', '1h', '1d'];
+	const timeframes: Timeframe[] = [
+		'1m',
+		'2m',
+		'3m',
+		'4m',
+		'5m',
+		'10m',
+		'15m',
+		'30m',
+		'1h',
+		'2h',
+		'4h',
+		'1d',
+		'1w',
+		'1mo',
+		'3mo',
+		'1y'
+	];
 	const scanners: { value: Scanner; label: string }[] = [
 		{ value: 'reversal', label: 'Reversal' },
 		{ value: 'scalping', label: 'Scalping' }
