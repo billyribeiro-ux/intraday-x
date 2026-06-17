@@ -72,14 +72,16 @@
 		display: flex;
 		align-items: center;
 		gap: 0.75rem;
-		padding: 0.75rem 1.25rem;
+		min-height: 52px;
+		padding: 0.6rem 0.85rem 0.6rem 1rem;
 		border-bottom: 1px solid var(--border);
 		background: var(--panel);
+		box-shadow: 0 1px 0 color-mix(in srgb, #fff 4%, transparent) inset;
 	}
 	.brand {
 		font-weight: 700;
 		font-size: 1.05rem;
-		letter-spacing: -0.01em;
+		letter-spacing: 0;
 		align-self: baseline;
 	}
 	.brand .x {
@@ -99,7 +101,7 @@
 		height: 34px;
 		border-radius: 6px;
 		border: 1px solid var(--border);
-		background: var(--bg);
+		background: var(--surface);
 		color: var(--text);
 		cursor: pointer;
 		transition:
@@ -118,6 +120,7 @@
 		display: flex;
 		flex: 1;
 		min-height: 0;
+		background: var(--bg);
 	}
 	main {
 		flex: 1;
@@ -125,6 +128,18 @@
 		min-height: 0;
 		display: flex;
 		flex-direction: column;
-		overflow-y: auto; /* full-bleed: fills the window; pages scroll here, no 1100px cap */
+		overflow-y: auto;
+		background: var(--bg);
+	}
+	@media (max-width: 720px) {
+		.topbar {
+			padding-left: 0.75rem;
+		}
+		.tag {
+			display: none;
+		}
+		.body {
+			flex-direction: column;
+		}
 	}
 </style>

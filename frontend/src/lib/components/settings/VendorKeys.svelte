@@ -1,9 +1,8 @@
 <script lang="ts">
-	// API-key management for FREE, NON-BROKER market-data vendors (Twelve Data,
-	// Polygon, yfinance). Keys are WRITE-ONLY: the server never returns a value,
-	// so this component only ever shows a configured/not-set badge — it never
-	// renders a key. After a successful set/clear we re-fetch settings so the
-	// badge reflects server truth, then notify the parent via `onChanged`.
+	// API-key management for Financial Modeling Prep. The status API is
+	// write-only: normal settings responses never return the key value, only the
+	// configured/not-set badge. After a successful set/clear we re-fetch settings
+	// so the badge reflects server truth, then notify the parent via `onChanged`.
 	import {
 		CheckCircleIcon,
 		CircleIcon,
@@ -20,6 +19,10 @@
 	// A vendor whose key the backend reads from no env var needs no key at all.
 	function needsKey(v: Vendor): boolean {
 		return v.env_var !== null;
+	}
+
+	function vendorLabel(name: string): string {
+		return name === 'fmp' ? 'Financial Modeling Prep' : name;
 	}
 
 	// Per-vendor draft input + reveal toggle, keyed by vendor name. Kept in a
@@ -80,8 +83,8 @@
 </script>
 
 <p class="lede">
-	Free, non-broker market-data vendors. Add an API key to enable a vendor; keys are stored on the
-	backend and never shown again.
+	All chart, scan, backtest, and live quote data is sourced from FMP. Add your FMP API key to
+	enable market data; the key is stored by the local backend and not shown in settings responses.
 </p>
 
 <ul class="vendors">
@@ -90,7 +93,7 @@
 		<li class="vendor">
 			<div class="row">
 				<div class="ident">
-					<span class="name">{vendor.name}</span>
+					<span class="name">{vendorLabel(vendor.name)}</span>
 					{#if !needsKey(vendor)}
 						<span class="badge neutral">no key needed</span>
 					{:else if vendor.configured}
@@ -215,9 +218,9 @@
 		border: 1px solid var(--border);
 	}
 	.badge.ok {
-		color: #3fb950;
-		border-color: color-mix(in srgb, #3fb950 40%, var(--border));
-		background: color-mix(in srgb, #3fb950 12%, transparent);
+		color: var(--buy);
+		border-color: color-mix(in srgb, var(--buy) 40%, var(--border));
+		background: color-mix(in srgb, var(--buy) 12%, transparent);
 	}
 	.badge.off {
 		color: var(--muted);
@@ -304,7 +307,7 @@
 	.btn.primary {
 		background: var(--accent);
 		border-color: var(--accent);
-		color: #fff;
+		color: var(--accent-contrast);
 	}
 	.btn.primary:hover:not(:disabled) {
 		background: color-mix(in srgb, var(--accent) 85%, #000);
@@ -314,8 +317,8 @@
 		color: var(--muted);
 	}
 	.btn.ghost:hover:not(:disabled) {
-		color: #f85149;
-		border-color: color-mix(in srgb, #f85149 45%, var(--border));
+		color: var(--sell);
+		border-color: color-mix(in srgb, var(--sell) 45%, var(--border));
 	}
 	.btn:focus-visible,
 	.reveal:focus-visible {
@@ -325,9 +328,9 @@
 	.msg {
 		margin: 0.6rem 0 0;
 		font-size: 0.8rem;
-		color: #3fb950;
+		color: var(--buy);
 	}
 	.msg.error {
-		color: #f85149;
+		color: var(--sell);
 	}
 </style>

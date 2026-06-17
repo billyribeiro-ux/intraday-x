@@ -1,6 +1,11 @@
 <script lang="ts">
-	import * as echarts from 'echarts';
+	import type { ECharts, EChartsCoreOption, graphic, init } from 'echarts/core';
 	import type { EquityPoint } from '$lib/api/backtest';
+
+	type EChartsModule = {
+		init: typeof init;
+		graphic: typeof graphic;
+	};
 
 	interface Props {
 		/** Cumulative equity in CENTS, from BacktestResponse.equity_curve. */
@@ -12,15 +17,36 @@
 
 	let container = $state<HTMLDivElement>();
 	let ddContainer = $state<HTMLDivElement>();
-	let chart: echarts.ECharts | undefined;
-	let ddChart: echarts.ECharts | undefined;
+	let echartsModule: EChartsModule | null = null;
+
+	async function loadEcharts(): Promise<EChartsModule> {
+		if (echartsModule) return echartsModule;
+		const [{ init, use, graphic }, { LineChart }, components, { CanvasRenderer }] =
+			await Promise.all([
+				import('echarts/core'),
+				import('echarts/charts'),
+				import('echarts/components'),
+				import('echarts/renderers')
+			]);
+		use([
+			LineChart,
+			components.GridComponent,
+			components.TooltipComponent,
+			components.DataZoomInsideComponent,
+			CanvasRenderer
+		]);
+		echartsModule = { init, graphic };
+		return echartsModule;
+	}
 
 	function colors() {
 		const cs = getComputedStyle(document.documentElement);
 		return {
+			panel: cs.getPropertyValue('--panel').trim() || '#101318',
 			text: cs.getPropertyValue('--muted').trim() || '#8b949e',
 			grid: cs.getPropertyValue('--border').trim() || '#1b2230',
-			accent: cs.getPropertyValue('--accent').trim() || '#58a6ff'
+			accent: cs.getPropertyValue('--accent').trim() || '#58a6ff',
+			sell: cs.getPropertyValue('--sell').trim() || '#fb7185'
 		};
 	}
 
@@ -36,7 +62,12 @@
 		});
 	});
 
-	function baseOption(data: [number, number][], color: string, area: boolean): echarts.EChartsCoreOption {
+	function baseOption(
+		data: [number, number][],
+		color: string,
+		area: boolean,
+		ec: EChartsModule
+	): EChartsCoreOption {
 		const col = colors();
 		return {
 			animation: false,
@@ -56,7 +87,7 @@
 			dataZoom: [{ type: 'inside' }],
 			tooltip: {
 				trigger: 'axis',
-				backgroundColor: '#161b22',
+				backgroundColor: col.panel,
 				borderColor: col.grid,
 				textStyle: { color: col.text }
 			},
@@ -68,7 +99,7 @@
 					lineStyle: { color, width: 2 },
 					areaStyle: area
 						? {
-								color: new (echarts as any).graphic.LinearGradient(0, 0, 0, 1, [
+								color: new ec.graphic.LinearGradient(0, 0, 0, 1, [
 									{ offset: 0, color },
 									{ offset: 1, color: 'rgba(0,0,0,0)' }
 								])
@@ -81,40 +112,43 @@
 	}
 
 	$effect(() => {
-		if (!container) return;
-		const c = echarts.init(container, undefined, { renderer: 'canvas' });
-		chart = c;
-		const observer = new ResizeObserver(() => c.resize());
-		observer.observe(container);
+		if (!container || equityData.length === 0) return;
+		let disposed = false;
+		let observer: ResizeObserver | undefined;
+		let c: ECharts | undefined;
+		void loadEcharts().then((ec) => {
+			if (disposed || !container) return;
+			c = ec.init(container, undefined, { renderer: 'canvas' });
+			observer = new ResizeObserver(() => c?.resize());
+			observer.observe(container);
+			const col = colors();
+			c.setOption(baseOption(equityData, col.accent, true, ec), true);
+		});
 		return () => {
-			observer.disconnect();
-			c.dispose();
-			chart = undefined;
+			disposed = true;
+			observer?.disconnect();
+			c?.dispose();
 		};
 	});
 
 	$effect(() => {
-		if (!ddContainer) return;
-		const c = echarts.init(ddContainer, undefined, { renderer: 'canvas' });
-		ddChart = c;
-		const observer = new ResizeObserver(() => c.resize());
-		observer.observe(ddContainer);
+		if (!ddContainer || drawdownData.length === 0) return;
+		let disposed = false;
+		let observer: ResizeObserver | undefined;
+		let c: ECharts | undefined;
+		void loadEcharts().then((ec) => {
+			if (disposed || !ddContainer) return;
+			c = ec.init(ddContainer, undefined, { renderer: 'canvas' });
+			observer = new ResizeObserver(() => c?.resize());
+			observer.observe(ddContainer);
+			const col = colors();
+			c.setOption(baseOption(drawdownData, col.sell, false, ec), true);
+		});
 		return () => {
-			observer.disconnect();
-			c.dispose();
-			ddChart = undefined;
+			disposed = true;
+			observer?.disconnect();
+			c?.dispose();
 		};
-	});
-
-	$effect(() => {
-		if (!chart || equityData.length === 0) return;
-		const col = colors();
-		chart.setOption(baseOption(equityData, col.accent, true), true);
-	});
-
-	$effect(() => {
-		if (!ddChart || drawdownData.length === 0) return;
-		ddChart.setOption(baseOption(drawdownData, '#f85149', false), true);
 	});
 </script>
 

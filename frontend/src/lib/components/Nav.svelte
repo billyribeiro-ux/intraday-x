@@ -42,22 +42,24 @@
 	nav {
 		display: flex;
 		flex-direction: column;
-		gap: 0.25rem;
-		padding: 0.75rem;
+		gap: 0.35rem;
+		padding: 0.7rem 0.55rem;
 		border-right: 1px solid var(--border);
 		background: var(--panel);
-		min-width: 168px;
+		width: 148px;
+		flex: 0 0 148px;
 	}
 	.nav-link {
 		display: flex;
 		align-items: center;
-		gap: 0.6rem;
-		padding: 0.5rem 0.7rem;
+		gap: 0.55rem;
+		min-height: 34px;
+		padding: 0 0.65rem;
 		border-radius: 6px;
 		color: var(--muted);
 		text-decoration: none;
-		font-size: 0.875rem;
-		font-weight: 500;
+		font-size: 0.82rem;
+		font-weight: 650;
 		line-height: 1;
 		border: 1px solid transparent;
 		transition:
@@ -66,15 +68,35 @@
 	}
 	.nav-link:hover {
 		color: var(--text);
-		background: color-mix(in srgb, var(--accent) 8%, transparent);
+		background: var(--surface);
 	}
 	.nav-link.active {
 		color: var(--text);
-		background: color-mix(in srgb, var(--accent) 14%, transparent);
+		background: color-mix(in srgb, var(--accent) 12%, var(--surface));
 		border-color: color-mix(in srgb, var(--accent) 35%, transparent);
 	}
 	.nav-link:focus-visible {
 		outline: 2px solid var(--accent);
 		outline-offset: 2px;
+	}
+	@media (max-width: 720px) {
+		nav {
+			flex-direction: row;
+			width: 100%;
+			flex: 0 0 auto;
+			overflow-x: hidden;
+			border-right: none;
+			border-bottom: 1px solid var(--border);
+		}
+		.nav-link {
+			flex: 1 1 0;
+			justify-content: center;
+			min-width: 0;
+		}
+		.nav-link span {
+			overflow: hidden;
+			text-overflow: ellipsis;
+			white-space: nowrap;
+		}
 	}
 </style>

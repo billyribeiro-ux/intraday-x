@@ -5,11 +5,14 @@
 	interface Props {
 		state: ConnState;
 		source?: string | null;
+		configured?: boolean | null;
+		detail?: string | null;
 	}
 
-	let { state, source = null }: Props = $props();
+	let { state, source = null, configured = null, detail = null }: Props = $props();
 
 	let label = $derived.by(() => {
+		if (state === 'open' && configured === false) return 'FMP key needed';
 		switch (state) {
 			case 'open':
 				return source ? `Live · ${source}` : 'Live';
@@ -24,10 +27,11 @@
 		}
 	});
 
-	let connected = $derived(state === 'open' || state === 'demo');
+	let connected = $derived((state === 'open' && configured !== false) || state === 'demo');
+	let title = $derived(configured === false && detail ? detail : label);
 </script>
 
-<span class="status" class:connected class:down={!connected}>
+<span class="status" class:connected class:down={!connected} {title}>
 	{#if connected}
 		<PlugsConnectedIcon size={15} weight="bold" />
 	{:else}
@@ -41,15 +45,19 @@
 		display: inline-flex;
 		align-items: center;
 		gap: 0.4rem;
-		font-size: 0.8rem;
-		padding: 0.25rem 0.6rem;
-		border-radius: 999px;
-		border: 1px solid #1b2230;
+		height: 28px;
+		padding: 0 0.6rem;
+		border-radius: 6px;
+		border: 1px solid var(--border);
+		background: var(--surface);
+		font-size: 0.76rem;
+		font-weight: 650;
+		white-space: nowrap;
 	}
 	.connected {
-		color: #3fb950;
+		color: var(--buy);
 	}
 	.down {
-		color: #d29922;
+		color: var(--warn);
 	}
 </style>

@@ -12,6 +12,8 @@ from datetime import UTC, datetime, timedelta
 from functools import lru_cache
 from pathlib import Path
 
+import polars as pl
+
 from intradayx.api import settings_store
 from intradayx.api.schemas import (
     BacktestResponse,
@@ -23,6 +25,7 @@ from intradayx.api.schemas import (
     MarkerDTO,
     MetricsDTO,
     ScanResponse,
+    StudyDTO,
     TodStatDTO,
     TradeDTO,
     VolumePointDTO,
@@ -72,6 +75,13 @@ def _meta_filter_for(symbol: str, scanner: str) -> MetaFilter | None:
 
 def _epoch(ts: datetime) -> int:
     return int(ts.timestamp())
+
+
+def _line_points(df, column: str) -> list[LinePointDTO]:
+    points: list[LinePointDTO] = []
+    for row in df.select("ts", column).drop_nulls(column).iter_rows(named=True):
+        points.append(LinePointDTO(time=_epoch(row["ts"]), value=row[column]))
+    return points
 
 
 def _clamped_start(end: datetime, days: int, caps: ProviderCapabilities, tf: Timeframe) -> datetime:
@@ -132,13 +142,17 @@ def build_chart(symbol: str, timeframe: str, days: int, scanner: str = "reversal
             candles=[],
             volume=[],
             vwap=[],
+            studies=[],
             markers=[],
             levels=None,
             data_completeness=0.0,
         )
 
     fs = build_features(bars, caps)
-    df = fs.df
+    df = fs.df.with_columns(
+        ema20=pl.col("close").ewm_mean(span=20, adjust=False, min_samples=20),
+        ema50=pl.col("close").ewm_mean(span=50, adjust=False, min_samples=50),
+    )
     candles: list[CandleDTO] = []
     volume: list[VolumePointDTO] = []
     vwap: list[LinePointDTO] = []
@@ -163,6 +177,11 @@ def build_chart(symbol: str, timeframe: str, days: int, scanner: str = "reversal
         )
         if row.get("vwap_session") is not None:
             vwap.append(LinePointDTO(time=t, value=row["vwap_session"]))
+
+    studies = [
+        StudyDTO(key="ema20", label="EMA 20", pane="price", points=_line_points(df, "ema20")),
+        StudyDTO(key="ema50", label="EMA 50", pane="price", points=_line_points(df, "ema50")),
+    ]
 
     last = df.tail(1).to_dicts()[0]
     levels = None
@@ -190,6 +209,7 @@ def build_chart(symbol: str, timeframe: str, days: int, scanner: str = "reversal
         candles=candles,
         volume=volume,
         vwap=vwap,
+        studies=studies,
         markers=markers,
         levels=levels,
         data_completeness=fs.data_completeness,

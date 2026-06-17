@@ -151,10 +151,10 @@
 		margin-left: 0.4rem;
 	}
 	.pos {
-		color: #3fb950;
+		color: var(--buy);
 	}
 	.neg {
-		color: #f85149;
+		color: var(--sell);
 	}
 	.sharpe {
 		margin-top: 0.8rem;

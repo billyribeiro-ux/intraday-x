@@ -18,7 +18,7 @@ from fastapi.testclient import TestClient
 from intradayx.api import settings_store
 from intradayx.api.settings_store import StoredSettings
 
-_SECRET = "td-secret-key-abc123"
+_SECRET = "fmp-secret-key-abc123"
 
 
 @pytest.fixture(autouse=True)
@@ -29,7 +29,7 @@ def _tmp_app_data(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv(env_var, raising=False)
 
 
-def test_store_round_trip_and_chmod(tmp_path: Path) -> None:
+def test_store_round_trip_and_chmod() -> None:
     stored = StoredSettings(
         theme="dark",
         providers=["yfinance"],
@@ -46,7 +46,11 @@ def test_store_round_trip_and_chmod(tmp_path: Path) -> None:
     assert mode == 0o600
 
     loaded = settings_store.load_settings()
-    assert loaded == stored
+    assert loaded.theme == stored.theme
+    assert loaded.providers == ["fmp"]
+    assert loaded.watched_symbols == stored.watched_symbols
+    assert loaded.default_scanner == stored.default_scanner
+    assert loaded.vendor_keys == {}
 
 
 def test_load_missing_returns_defaults() -> None:
@@ -71,12 +75,9 @@ def test_get_settings_lists_vendors(client: TestClient) -> None:
     assert body["theme"] == "system"
     assert body["default_scanner"] == "reversal"
     names = {v["name"]: v for v in body["vendors"]}
-    # yfinance is credential-free → always configured, no env var.
-    assert names["yfinance"]["configured"] is True
-    assert names["yfinance"]["env_var"] is None
-    # twelvedata has no key yet → not configured.
-    assert names["twelvedata"]["configured"] is False
-    assert names["twelvedata"]["env_var"] == "TWELVEDATA_API_KEY"
+    assert set(names) == {"fmp"}
+    assert names["fmp"]["configured"] is False
+    assert names["fmp"]["env_var"] == "FMP_API_KEY"
 
 
 def test_put_settings_validates_and_persists(client: TestClient) -> None:
@@ -103,38 +104,56 @@ def test_put_settings_validates_and_persists(client: TestClient) -> None:
 def test_vendor_key_set_flips_configured_and_hides_key(client: TestClient) -> None:
     resp = client.post(
         "/api/settings/vendor-key",
-        json={"vendor": "twelvedata", "api_key": _SECRET},
+        json={"vendor": "fmp", "api_key": _SECRET},
     )
     assert resp.status_code == 200
     body = resp.json()
-    assert body == {"vendor": "twelvedata", "configured": True}
+    assert body == {"vendor": "fmp", "configured": True}
     assert _SECRET not in resp.text  # key value must never be echoed
 
     # The key took effect live: env var set + GET reflects configured.
-    assert os.environ.get("TWELVEDATA_API_KEY") == _SECRET
+    assert os.environ.get("FMP_API_KEY") == _SECRET
     get_body = client.get("/api/settings").json()
     assert _SECRET not in client.get("/api/settings").text
-    td = next(v for v in get_body["vendors"] if v["name"] == "twelvedata")
-    assert td["configured"] is True
+    fmp = next(v for v in get_body["vendors"] if v["name"] == "fmp")
+    assert fmp["configured"] is True
 
     # And it persisted to the store file (the value lives there, not in responses).
-    assert settings_store.load_settings().vendor_keys["twelvedata"] == _SECRET
+    assert settings_store.load_settings().vendor_keys["fmp"] == _SECRET
 
 
 def test_vendor_key_delete_flips_back(client: TestClient) -> None:
-    client.post("/api/settings/vendor-key", json={"vendor": "twelvedata", "api_key": _SECRET})
-    resp = client.delete("/api/settings/vendor-key/twelvedata")
+    client.post("/api/settings/vendor-key", json={"vendor": "fmp", "api_key": _SECRET})
+    resp = client.delete("/api/settings/vendor-key/fmp")
     assert resp.status_code == 200
-    assert resp.json() == {"vendor": "twelvedata", "configured": False}
+    assert resp.json() == {"vendor": "fmp", "configured": False}
 
-    assert "TWELVEDATA_API_KEY" not in os.environ
-    assert "twelvedata" not in settings_store.load_settings().vendor_keys
-    td = next(v for v in client.get("/api/settings").json()["vendors"] if v["name"] == "twelvedata")
-    assert td["configured"] is False
+    assert "FMP_API_KEY" not in os.environ
+    assert "fmp" not in settings_store.load_settings().vendor_keys
+    fmp = next(v for v in client.get("/api/settings").json()["vendors"] if v["name"] == "fmp")
+    assert fmp["configured"] is False
 
 
 def test_vendor_key_unknown_vendor_rejected(client: TestClient) -> None:
-    # yfinance is credential-free → rejecting a key for it is correct, fail loud.
     resp = client.post("/api/settings/vendor-key", json={"vendor": "yfinance", "api_key": "x"})
     assert resp.status_code == 400
     assert client.delete("/api/settings/vendor-key/yfinance").status_code == 400
+
+
+def test_app_starts_without_fmp_key_and_reports_configuration_gap() -> None:
+    from intradayx.api.app import app
+
+    with TestClient(app) as live_client:
+        assert live_client.get("/healthz").status_code == 200
+        assert live_client.get("/api/settings").status_code == 200
+
+        caps = live_client.get("/api/providers/capabilities")
+        assert caps.status_code == 503
+        assert "FMP_API_KEY is required" in caps.json()["detail"]
+
+        with live_client.websocket_connect("/ws/signals") as ws:
+            status = ws.receive_json()
+            assert status["type"] == "status"
+            assert status["data"]["source"] == "fmp"
+            assert status["data"]["configured"] is False
+            assert "FMP_API_KEY is required" in status["data"]["detail"]

@@ -80,16 +80,15 @@
 
 <style>
 	.table-wrap {
-		/* contain layout so appending rows can't reflow neighbouring panes */
 		contain: layout paint;
-		border: 1px solid var(--border);
-		border-radius: 8px;
+		height: 100%;
 		overflow: auto;
 	}
 	table {
 		width: 100%;
+		min-width: 760px;
 		border-collapse: collapse;
-		font-size: 0.85rem;
+		font-size: 0.78rem;
 	}
 	thead th {
 		position: sticky;
@@ -97,17 +96,21 @@
 		background: var(--panel);
 		color: var(--muted);
 		text-align: left;
-		font-weight: 600;
-		padding: 0.5rem 0.75rem;
+		font-weight: 700;
+		padding: 0.5rem 0.65rem;
 		border-bottom: 1px solid var(--border);
 		white-space: nowrap;
+		z-index: 1;
 	}
 	tbody td {
-		height: 40px; /* fixed row height => zero CLS on append */
-		padding: 0 0.75rem;
+		height: 36px;
+		padding: 0 0.65rem;
 		border-bottom: 1px solid var(--border);
 		color: var(--text);
 		white-space: nowrap;
+	}
+	tbody tr:hover td {
+		background: color-mix(in srgb, var(--accent) 6%, transparent);
 	}
 	.num {
 		text-align: right;
@@ -123,14 +126,14 @@
 		text-transform: capitalize;
 	}
 	.side.buy {
-		color: #3fb950;
+		color: var(--buy);
 	}
 	.side.sell {
-		color: #f85149;
+		color: var(--sell);
 	}
 	.why {
 		color: var(--muted);
-		max-width: 22rem;
+		max-width: 18rem;
 		overflow: hidden;
 		text-overflow: ellipsis;
 	}

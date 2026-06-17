@@ -15,7 +15,7 @@ generates a thinkorSwim ThinkScript study.
 ## What's inside
 
 ```
-ticker ─▶ DataProvider (yfinance + Twelve Data + Polygon + …, capability-gated)
+ticker ─▶ FMP DataProvider (Financial Modeling Prep, capability-gated)
         ─▶ Parquet/DuckDB lake
         ─▶ causal features (VWAP, RVOL, ATR, POC/VAH/VAL, pivots, climax, squeeze)
         ─▶ SignalEngine  ◀── shared ──▶  Backtester  &  Live monitor
@@ -23,9 +23,9 @@ ticker ─▶ DataProvider (yfinance + Twelve Data + Polygon + …, capability-g
         ─▶ CSV/PDF · FastAPI + WebSocket ─▶ SvelteKit + Lightweight Charts · ThinkScript
 ```
 
-- **Vendor-agnostic data** — a `Capability` system: providers declare what they
-  support; features/detectors that need missing data stay **dormant** rather than
-  fabricate. Add a paid vendor later and internals/options light up with no rewrite.
+- **FMP-sourced market data** — Financial Modeling Prep is the canonical data
+  provider for charts, scans, backtests, and live quote updates. The `Capability`
+  system still gates unavailable surfaces honestly rather than fabricating data.
 - **Two scanners, one engine** — reversal + scalping share the backtester, live
   monitor, exporter, API and dashboard (backtest↔live parity is enforced by tests).
 - **Honest attribution** — rule-based "why" + a LightGBM/SHAP "culprit" model
@@ -38,7 +38,8 @@ ticker ─▶ DataProvider (yfinance + Twelve Data + Polygon + …, capability-g
 
 ```bash
 cd backend
-uv sync --extra export --extra api --extra ml      # Twelve Data/Polygon need no extra (httpx)
+uv sync --extra export --extra api --extra ml
+export FMP_API_KEY=your_key_here                   # required: all market data is FMP
 
 uv run intradayx scan AAPL --scanner reversal      # tops/bottoms with ranked "why"
 uv run intradayx scan AAPL --scanner scalping       # momentum/VWAP-reclaim entries
@@ -61,11 +62,10 @@ pnpm dev            # http://localhost:5173 (proxies /api + /ws to :8000)
 
 ## Data
 
-Works out of the box on **yfinance** (zero setup; ~7 days of 1-minute, ~60 days
-of 5-minute). For real multi-year backtests, add a free, **non-broker**
-**Twelve Data** key (1-minute back to 2020; see [`.env.example`](.env.example)) —
-the composite router prefers it automatically. Polygon (data vendor) is also
-wired. We use **free, non-broker data vendors only** — no broker integrations.
+All market data is sourced from **Financial Modeling Prep**. Set `FMP_API_KEY`
+in your environment or paste it in the desktop Settings screen. There is no
+silent yfinance/Twelve Data/Polygon fallback: a missing FMP key fails loudly so
+charts, studies, scans, and backtests never mix provenance by accident.
 Deep historical intraday market internals ($TICK/$TRIN/…) aren't sold cheaply —
 the internals self-recorder banks them once you connect a realtime feed. See
 [`docs/DATA_PROVIDERS.md`](docs/DATA_PROVIDERS.md).
