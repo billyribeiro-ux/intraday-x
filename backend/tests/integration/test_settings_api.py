@@ -157,3 +157,22 @@ def test_app_starts_without_fmp_key_and_reports_configuration_gap() -> None:
             assert status["data"]["source"] == "fmp"
             assert status["data"]["configured"] is False
             assert "FMP_API_KEY is required" in status["data"]["detail"]
+
+
+def test_app_startup_applies_persisted_fmp_key() -> None:
+    from intradayx.api.app import app
+
+    settings_store.save_settings(StoredSettings(vendor_keys={"fmp": _SECRET}))
+
+    with TestClient(app) as live_client:
+        caps = live_client.get("/api/providers/capabilities")
+        assert caps.status_code == 200
+        assert caps.json()["provider"] == "fmp"
+        assert _SECRET not in caps.text
+
+        with live_client.websocket_connect("/ws/signals") as ws:
+            status = ws.receive_json()
+            assert status["type"] == "status"
+            assert status["data"]["source"] == "fmp"
+            assert status["data"]["configured"] is True
+            assert status["data"]["detail"] is None

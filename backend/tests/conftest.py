@@ -14,6 +14,7 @@ from collections.abc import Generator
 
 import pytest
 
+from intradayx.api import service
 from intradayx.config import get_settings
 
 
@@ -32,5 +33,7 @@ def _no_network(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch)
 @pytest.fixture(autouse=True)
 def _clear_settings_cache() -> Generator[None, None, None]:
     get_settings.cache_clear()
+    service.get_provider.cache_clear()
     yield
     get_settings.cache_clear()
+    service.get_provider.cache_clear()

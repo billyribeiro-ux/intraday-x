@@ -12,14 +12,14 @@ async function getJson<T>(fetchFn: Fetch, url: string): Promise<T> {
 	const base = await apiBase();
 	const res = await fetchFn(`${base}${url}`);
 	if (!res.ok) {
-		let detail = '';
+		let detail: string | null = null;
 		try {
 			const body = (await res.json()) as { detail?: unknown };
-			if (typeof body.detail === 'string') detail = ` — ${body.detail}`;
+			if (typeof body.detail === 'string') detail = body.detail;
 		} catch {
 			// status line is enough when the backend did not send JSON
 		}
-		throw new Error(`API ${url} failed: ${res.status} ${res.statusText}${detail}`);
+		throw new Error(detail ?? `API ${url} failed: ${res.status} ${res.statusText}`);
 	}
 	return (await res.json()) as T;
 }
@@ -49,14 +49,14 @@ export async function scan(
 		body: JSON.stringify({ symbol, timeframe, days, scanner })
 	});
 	if (!res.ok) {
-		let detail = '';
+		let detail: string | null = null;
 		try {
 			const body = (await res.json()) as { detail?: unknown };
-			if (typeof body.detail === 'string') detail = ` — ${body.detail}`;
+			if (typeof body.detail === 'string') detail = body.detail;
 		} catch {
 			// status line is enough when the backend did not send JSON
 		}
-		throw new Error(`API /api/scan failed: ${res.status}${detail}`);
+		throw new Error(detail ?? `API /api/scan failed: ${res.status}`);
 	}
 	return (await res.json()) as ScanPayload;
 }
