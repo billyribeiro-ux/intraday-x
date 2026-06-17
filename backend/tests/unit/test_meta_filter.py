@@ -132,6 +132,10 @@ def test_train_meta_filter_with_engine_signals() -> None:
     )
     signals = SignalEngine(ReversalStrategy()).evaluate(fs)
     assert len(signals) == 1
+    snapshot = signals[0].feature_snapshot
+    assert snapshot["confluence"] > 0
+    assert snapshot["rvol"] == 4.0
+    assert snapshot["atr"] == 1.0
     _, result = train_meta_filter(signals, bars, min_samples=1)
     # Not enough samples for a real CV, but fit should report insufficient or succeed.
     assert isinstance(result.n_samples, int)

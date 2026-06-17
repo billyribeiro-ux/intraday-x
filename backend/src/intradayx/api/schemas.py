@@ -153,6 +153,21 @@ class StudyDTO(BaseModel):
     points: list[LinePointDTO]
 
 
+class MoveDriverDTO(BaseModel):
+    kind: str
+    score: float
+    label: str
+    evidence: dict[str, float]
+
+
+class MoveExplanationDTO(BaseModel):
+    direction: str
+    regime: str
+    confidence: float
+    summary: str
+    drivers: list[MoveDriverDTO]
+
+
 class BarsResponse(BaseModel):
     symbol: str
     timeframe: str
@@ -163,6 +178,7 @@ class BarsResponse(BaseModel):
     markers: list[MarkerDTO]
     levels: LevelsDTO | None
     data_completeness: float
+    move_explanation: MoveExplanationDTO | None = None
 
 
 # --- backtest ---

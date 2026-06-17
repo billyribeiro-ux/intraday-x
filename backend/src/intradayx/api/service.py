@@ -24,6 +24,8 @@ from intradayx.api.schemas import (
     LinePointDTO,
     MarkerDTO,
     MetricsDTO,
+    MoveDriverDTO,
+    MoveExplanationDTO,
     ScanResponse,
     StudyDTO,
     TodStatDTO,
@@ -31,6 +33,7 @@ from intradayx.api.schemas import (
     VolumePointDTO,
     to_signal_dto,
 )
+from intradayx.attribution.move_explainer import MoveExplanation, explain_latest_move
 from intradayx.backtest.runner import run_backtest
 from intradayx.data.factory import default_provider
 from intradayx.data.provider import DataProvider
@@ -82,6 +85,26 @@ def _line_points(df, column: str) -> list[LinePointDTO]:
     for row in df.select("ts", column).drop_nulls(column).iter_rows(named=True):
         points.append(LinePointDTO(time=_epoch(row["ts"]), value=row[column]))
     return points
+
+
+def _move_explanation_dto(move: MoveExplanation | None) -> MoveExplanationDTO | None:
+    if move is None:
+        return None
+    return MoveExplanationDTO(
+        direction=move.direction,
+        regime=move.regime,
+        confidence=move.confidence,
+        summary=move.summary,
+        drivers=[
+            MoveDriverDTO(
+                kind=d.kind,
+                score=d.score,
+                label=d.label,
+                evidence=d.evidence,
+            )
+            for d in move.drivers
+        ],
+    )
 
 
 def _clamped_start(end: datetime, days: int, caps: ProviderCapabilities, tf: Timeframe) -> datetime:
@@ -146,6 +169,7 @@ def build_chart(symbol: str, timeframe: str, days: int, scanner: str = "reversal
             markers=[],
             levels=None,
             data_completeness=0.0,
+            move_explanation=None,
         )
 
     fs = build_features(bars, caps)
@@ -213,6 +237,7 @@ def build_chart(symbol: str, timeframe: str, days: int, scanner: str = "reversal
         markers=markers,
         levels=levels,
         data_completeness=fs.data_completeness,
+        move_explanation=_move_explanation_dto(explain_latest_move(df, fs.data_completeness)),
     )
 
 

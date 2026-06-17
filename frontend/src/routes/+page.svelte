@@ -178,6 +178,7 @@
 	const vwap = $derived(bars?.vwap ?? []);
 	const studies = $derived(bars?.studies ?? []);
 	const markers = $derived(bars?.markers ?? []);
+	const move = $derived(bars?.move_explanation ?? null);
 
 	const lastClose = $derived(candles.at(-1)?.close ?? null);
 	const completeness = $derived(bars?.data_completeness ?? null);
@@ -314,6 +315,24 @@
 					</div>
 					<span class="count">{signals.length}</span>
 				</div>
+				{#if move}
+					<div class="state-panel">
+						<div class="state-row">
+							<span class="state-kicker">Market state</span>
+							<span class="state-confidence">{fmtPct(move.confidence)}</span>
+						</div>
+						<div class="state-title">
+							<span class="state-direction {move.direction}">{move.direction}</span>
+							<span>{move.regime}</span>
+						</div>
+						<p>{move.summary}</p>
+						<div class="drivers">
+							{#each move.drivers.slice(0, 3) as driver (driver.kind)}
+								<span title={driver.label}>{driver.label} · {fmtPct(driver.score)}</span>
+							{/each}
+						</div>
+					</div>
+				{/if}
 				<div class="signals-scroll">
 					<SignalTable {signals} />
 				</div>
@@ -490,7 +509,7 @@
 		min-width: 0;
 		min-height: 0;
 		display: grid;
-		grid-template-rows: auto minmax(0, 1fr) auto;
+		grid-template-rows: auto auto minmax(0, 1fr) auto;
 		border: 1px solid var(--border);
 		border-radius: 8px;
 		background: var(--panel);
@@ -520,6 +539,67 @@
 		min-width: 34px;
 		color: var(--text);
 		font-variant-numeric: tabular-nums;
+	}
+	.state-panel {
+		padding: 0.75rem 0.85rem;
+		border-bottom: 1px solid var(--border);
+		background: color-mix(in srgb, var(--surface) 42%, transparent);
+	}
+	.state-row,
+	.state-title,
+	.drivers {
+		display: flex;
+		align-items: center;
+		gap: 0.45rem;
+		min-width: 0;
+	}
+	.state-row {
+		justify-content: space-between;
+	}
+	.state-kicker,
+	.state-confidence {
+		color: var(--muted);
+		font-size: 0.68rem;
+		font-weight: 700;
+		text-transform: uppercase;
+	}
+	.state-title {
+		margin-top: 0.35rem;
+		font-size: 0.92rem;
+		font-weight: 760;
+		text-transform: capitalize;
+	}
+	.state-direction {
+		color: var(--muted);
+	}
+	.state-direction.up {
+		color: var(--buy);
+	}
+	.state-direction.down {
+		color: var(--sell);
+	}
+	.state-panel p {
+		margin: 0.35rem 0 0;
+		color: var(--muted);
+		font-size: 0.75rem;
+		line-height: 1.35;
+	}
+	.drivers {
+		flex-wrap: wrap;
+		margin-top: 0.55rem;
+	}
+	.drivers span {
+		max-width: 100%;
+		padding: 0.2rem 0.4rem;
+		border: 1px solid var(--border);
+		border-radius: 6px;
+		background: var(--surface);
+		color: var(--text);
+		font-size: 0.68rem;
+		font-weight: 650;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 	.signals-scroll {
 		min-height: 0;

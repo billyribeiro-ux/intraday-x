@@ -15,6 +15,7 @@ import numpy as np
 
 from intradayx.domain.signals import Signal
 from intradayx.signals.accuracy import LabeledSignal, SignalOutcome, label_outcomes
+from intradayx.signals.snapshot import SIGNAL_SNAPSHOT_FEATURES, TREND_REGIME_SNAPSHOT_FEATURES
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,23 +32,29 @@ class FitResult:
 
 
 # Features the meta-filter can learn from.  All are known at signal emission time.
-_NUMERIC_FEATURES = (
-    "confidence",
-    "quality_score",
-    "entry",
-    "stop",
-    "target1",
-    "target_dist",
-    "stop_dist",
-    "rr",
-    "c_climax",
-    "c_volume",
-    "c_value_area",
-    "c_poc",
-    "c_vwap",
-    "c_momentum",
-    "c_breakout",
-    "confluence",
+_NUMERIC_FEATURES = tuple(
+    dict.fromkeys(
+        (
+            "confidence",
+            "quality_score",
+            "entry",
+            "stop",
+            "target1",
+            "target_dist",
+            "stop_dist",
+            "rr",
+            "c_climax",
+            "c_volume",
+            "c_value_area",
+            "c_poc",
+            "c_vwap",
+            "c_momentum",
+            "c_breakout",
+            "confluence",
+            *SIGNAL_SNAPSHOT_FEATURES,
+            *TREND_REGIME_SNAPSHOT_FEATURES,
+        )
+    )
 )
 _CATEGORICAL_FEATURES = ("kind", "side", "tod_bucket")
 
@@ -80,6 +87,8 @@ def _signal_to_row(s: Signal) -> dict[str, Any]:
         "c_momentum": snap.get("c_momentum", 0.0),
         "c_breakout": snap.get("c_breakout", 0.0),
     }
+    for feature in (*SIGNAL_SNAPSHOT_FEATURES, *TREND_REGIME_SNAPSHOT_FEATURES):
+        row[feature] = snap.get(feature, 0.0)
     return row
 
 
