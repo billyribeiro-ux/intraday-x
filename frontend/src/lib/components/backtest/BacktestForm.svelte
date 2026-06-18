@@ -6,10 +6,12 @@
 	interface Props {
 		/** Callback prop (runes idiom — NO createEventDispatcher). */
 		onRun: (params: BacktestParams) => void;
+		onLearn: (params: BacktestParams & { min_samples: number }) => void;
 		loading?: boolean;
+		learning?: boolean;
 	}
 
-	let { onRun, loading = false }: Props = $props();
+	let { onRun, onLearn, loading = false, learning = false }: Props = $props();
 
 	const uid = $props.id();
 
@@ -42,23 +44,41 @@
 	let days = $state(60);
 	let maxHold = $state(24);
 	let scanner = $state<Scanner>('reversal');
+	let useLearning = $state(true);
+	let metaThreshold = $state(0.5);
+	let minSamples = $state(30);
 
 	// A simple, honest client-side validity check (fail loud, no silent fallbacks).
 	const symbolValid = $derived(/^[A-Za-z.\-]{1,8}$/.test(symbol.trim()));
 	const daysValid = $derived(Number.isInteger(days) && days >= 1 && days <= 730);
 	const maxHoldValid = $derived(Number.isInteger(maxHold) && maxHold >= 1 && maxHold <= 500);
-	const canRun = $derived(symbolValid && daysValid && maxHoldValid && !loading);
+	const metaThresholdValid = $derived(metaThreshold >= 0 && metaThreshold <= 1);
+	const minSamplesValid = $derived(Number.isInteger(minSamples) && minSamples >= 5 && minSamples <= 500);
+	const valid = $derived(symbolValid && daysValid && maxHoldValid && metaThresholdValid);
+	const canRun = $derived(valid && !loading && !learning);
+	const canLearn = $derived(valid && minSamplesValid && !loading && !learning);
 
-	function submit(e: SubmitEvent) {
-		e.preventDefault();
-		if (!canRun) return;
-		onRun({
+	function params(): BacktestParams {
+		return {
 			symbol: symbol.trim().toUpperCase(),
 			timeframe,
 			days,
 			max_hold: maxHold,
-			scanner
-		});
+			scanner,
+			use_learning: useLearning,
+			meta_threshold: metaThreshold
+		};
+	}
+
+	function submit(e: SubmitEvent) {
+		e.preventDefault();
+		if (!canRun) return;
+		onRun(params());
+	}
+
+	function learn() {
+		if (!canLearn) return;
+		onLearn({ ...params(), min_samples: minSamples });
 	}
 </script>
 
@@ -124,6 +144,48 @@
 		</select>
 	</div>
 
+	<label class="check">
+		<input type="checkbox" bind:checked={useLearning} />
+		<span>Use learned filter</span>
+	</label>
+
+	<div class="field compact">
+		<label for="{uid}-threshold">ML threshold</label>
+		<input
+			id="{uid}-threshold"
+			class="num"
+			class:invalid={!metaThresholdValid}
+			type="number"
+			min="0"
+			max="1"
+			step="0.05"
+			bind:value={metaThreshold}
+		/>
+	</div>
+
+	<div class="field compact">
+		<label for="{uid}-samples">Min samples</label>
+		<input
+			id="{uid}-samples"
+			class="num"
+			class:invalid={!minSamplesValid}
+			type="number"
+			min="5"
+			max="500"
+			step="1"
+			bind:value={minSamples}
+		/>
+	</div>
+
+	<button class="learn" type="button" disabled={!canLearn} onclick={learn}>
+		{#if learning}
+			<SpinnerIcon size={16} weight="bold" class="spin" />
+			Learning…
+		{:else}
+			Train model
+		{/if}
+	</button>
+
 	<button class="run" type="submit" disabled={!canRun}>
 		{#if loading}
 			<SpinnerIcon size={16} weight="bold" class="spin" />
@@ -151,6 +213,9 @@
 		flex-direction: column;
 		gap: 0.3rem;
 	}
+	.field.compact input {
+		width: 6.2rem;
+	}
 	label {
 		font-size: 0.72rem;
 		font-weight: 600;
@@ -177,6 +242,26 @@
 	input.invalid {
 		border-color: var(--sell);
 	}
+	.check {
+		height: 36px;
+		display: inline-flex;
+		align-items: center;
+		gap: 0.45rem;
+		padding: 0 0.65rem;
+		border: 1px solid var(--border);
+		border-radius: 6px;
+		background: var(--bg);
+		color: var(--text);
+		font-size: 0.78rem;
+		font-weight: 650;
+		text-transform: none;
+		letter-spacing: 0;
+	}
+	.check input {
+		width: 14px;
+		height: 14px;
+		padding: 0;
+	}
 	input.mono {
 		width: 7rem;
 		text-transform: uppercase;
@@ -190,7 +275,8 @@
 	select {
 		min-width: 7rem;
 	}
-	.run {
+	.run,
+	.learn {
 		display: inline-flex;
 		align-items: center;
 		gap: 0.4rem;
@@ -205,11 +291,22 @@
 		font-weight: 600;
 		cursor: pointer;
 	}
-	.run:disabled {
+	.learn {
+		margin-left: auto;
+		background: var(--surface);
+		color: var(--text);
+		border: 1px solid var(--border);
+	}
+	.run {
+		margin-left: 0;
+	}
+	.run:disabled,
+	.learn:disabled {
 		opacity: 0.55;
 		cursor: not-allowed;
 	}
-	.run :global(.spin) {
+	.run :global(.spin),
+	.learn :global(.spin) {
 		animation: spin 0.8s linear infinite;
 	}
 	@keyframes spin {

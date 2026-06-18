@@ -143,6 +143,25 @@ def test_deflated_sharpe_present_and_in_unit_interval(client: TestClient) -> Non
     assert 0.0 <= ds <= 1.0
 
 
+def test_backtest_returns_evidence_ledger_fields(client: TestClient) -> None:
+    body = _post(client, "scalping")
+
+    assert "learning" in body
+    assert "baseline_metrics" in body
+    assert body["n_raw_signals"] >= body["n_signals"]
+    assert 0.0 <= body["data_completeness"] <= 1.0
+    assert body["learning"]["selected_signals"] == body["n_signals"]
+
+    trade = body["trades"][0]
+    assert trade["signal_ts"]
+    assert trade["side"] in {"buy", "sell", "short", "cover", "exit"}
+    assert trade["attribution"]["summary"]
+    assert trade.get("diagnosis")
+    assert "entry_explanation" in trade
+    assert "exit_explanation" in trade
+    assert isinstance(trade["catalysts"], list)
+
+
 def test_deflated_sharpe_none_for_degenerate_sample(monkeypatch: pytest.MonkeyPatch) -> None:
     # A flat 2-bar series can produce at most 1 trade => < 3 returns => no moments.
     from tests.fixtures.synthetic import make_bars
@@ -160,3 +179,23 @@ def test_deflated_sharpe_none_for_degenerate_sample(monkeypatch: pytest.MonkeyPa
 def test_invalid_scanner_rejected(client: TestClient) -> None:
     resp = client.post("/api/backtest", json={"symbol": "TEST", "scanner": "momentum"})
     assert resp.status_code == 400
+
+
+def test_learn_endpoint_returns_training_report(client: TestClient) -> None:
+    resp = client.post(
+        "/api/learn",
+        json={
+            "symbol": "TEST",
+            "timeframe": "5m",
+            "days": 5,
+            "max_hold": 24,
+            "scanner": "scalping",
+            "min_samples": 5,
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["symbol"] == "TEST"
+    assert body["scanner"] == "scalping"
+    assert body["n_samples"] >= 0
+    assert "feature_importance" in body

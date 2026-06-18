@@ -7,10 +7,12 @@ from fastapi import APIRouter, HTTPException
 from intradayx.api.schemas import (
     BacktestRequest,
     BacktestResponse,
+    LearnRequest,
+    LearnResponse,
     ScanRequest,
     ScanResponse,
 )
-from intradayx.api.service import run_backtest_dto, run_scan
+from intradayx.api.service import run_backtest_dto, run_scan, train_meta_filter_dto
 from intradayx.data.provider import DataError
 
 router = APIRouter(prefix="/api", tags=["analysis"])
@@ -32,7 +34,30 @@ def backtest(req: BacktestRequest) -> BacktestResponse:
         raise HTTPException(status_code=400, detail="scanner must be 'reversal' or 'scalping'")
     try:
         return run_backtest_dto(
-            req.symbol, req.timeframe, req.days, req.max_hold, scanner=req.scanner
+            req.symbol,
+            req.timeframe,
+            req.days,
+            req.max_hold,
+            scanner=req.scanner,
+            use_learning=req.use_learning,
+            meta_threshold=req.meta_threshold,
+        )
+    except DataError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@router.post("/learn", response_model=LearnResponse)
+def learn(req: LearnRequest) -> LearnResponse:
+    if req.scanner not in ("reversal", "scalping"):
+        raise HTTPException(status_code=400, detail="scanner must be 'reversal' or 'scalping'")
+    try:
+        return train_meta_filter_dto(
+            req.symbol,
+            req.timeframe,
+            req.days,
+            req.max_hold,
+            scanner=req.scanner,
+            min_samples=req.min_samples,
         )
     except DataError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc

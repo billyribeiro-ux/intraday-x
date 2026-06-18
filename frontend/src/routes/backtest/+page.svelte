@@ -2,9 +2,11 @@
 	import {
 		formatUsd,
 		runBacktest,
+		trainBacktestModel,
 		type BacktestParams,
 		type BacktestResponse,
-		type BacktestTrade
+		type BacktestTrade,
+		type LearnResponse
 	} from '$lib/api/backtest';
 	import BacktestForm from '$lib/components/backtest/BacktestForm.svelte';
 	import EquityCurve from '$lib/components/backtest/EquityCurve.svelte';
@@ -18,8 +20,10 @@
 	} from '$lib/icons';
 
 	let loading = $state(false);
+	let learning = $state(false);
 	let error = $state<string | null>(null);
 	let result = $state<BacktestResponse | null>(null);
+	let learnResult = $state<LearnResponse | null>(null);
 	// Remembered for filenames + the results header (survives a failed re-run).
 	let lastParams = $state<BacktestParams | null>(null);
 
@@ -35,6 +39,27 @@
 			result = null;
 		} finally {
 			loading = false;
+		}
+	}
+
+	async function handleLearn(params: BacktestParams & { min_samples: number }) {
+		learning = true;
+		error = null;
+		learnResult = null;
+		lastParams = params;
+		try {
+			learnResult = await trainBacktestModel(fetch, {
+				symbol: params.symbol,
+				timeframe: params.timeframe,
+				days: params.days,
+				max_hold: params.max_hold,
+				scanner: params.scanner,
+				min_samples: params.min_samples
+			});
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Learning failed.';
+		} finally {
+			learning = false;
 		}
 	}
 
@@ -60,7 +85,12 @@
 			'shares',
 			'pnl_usd',
 			'exit_reason',
-			'tod_bucket'
+			'tod_bucket',
+			'confidence',
+			'quality_score',
+			'meta_score',
+			'attribution',
+			'diagnosis'
 		];
 		const rows = trades.map((t) =>
 			[
@@ -74,7 +104,12 @@
 				t.shares,
 				(t.pnl_cents / 100).toFixed(2),
 				t.exit_reason,
-				t.tod_bucket
+				t.tod_bucket,
+				t.confidence.toFixed(4),
+				t.quality_score.toFixed(4),
+				t.meta_score == null ? '' : t.meta_score.toFixed(4),
+				t.attribution.summary,
+				t.diagnosis
 			]
 				.map(csvCell)
 				.join(',')
@@ -99,15 +134,35 @@
 	// Attribution summary derived from the trades (exit-reason breakdown).
 	const exitBreakdown = $derived.by(() => {
 		if (!result) return [] as { reason: string; n: number; pnl_cents: number }[];
-		const map = new Map<string, { reason: string; n: number; pnl_cents: number }>();
+		const rows: { reason: string; n: number; pnl_cents: number }[] = [];
 		for (const t of result.trades) {
-			const cur = map.get(t.exit_reason) ?? { reason: t.exit_reason, n: 0, pnl_cents: 0 };
+			let cur = rows.find((row) => row.reason === t.exit_reason);
+			if (!cur) {
+				cur = { reason: t.exit_reason, n: 0, pnl_cents: 0 };
+				rows.push(cur);
+			}
 			cur.n += 1;
 			cur.pnl_cents += t.pnl_cents;
-			map.set(t.exit_reason, cur);
 		}
-		return [...map.values()].sort((a, b) => b.n - a.n);
+		return rows.sort((a, b) => b.n - a.n);
 	});
+
+	const pnlDelta = $derived(
+		result ? result.metrics.total_pnl_cents - result.baseline_metrics.total_pnl_cents : 0
+	);
+
+	function fmtPct(value: number | null | undefined): string {
+		return value == null ? '—' : `${(value * 100).toFixed(0)}%`;
+	}
+
+	function fmtTime(value: string): string {
+		return new Date(value).toLocaleString(undefined, {
+			month: 'short',
+			day: 'numeric',
+			hour: 'numeric',
+			minute: '2-digit'
+		});
+	}
 </script>
 
 <section class="studio">
@@ -116,7 +171,7 @@
 		<h1>Backtest Studio</h1>
 	</div>
 
-	<BacktestForm onRun={handleRun} {loading} />
+	<BacktestForm onRun={handleRun} onLearn={handleLearn} {loading} {learning} />
 
 	{#if error}
 		<div class="banner" role="alert">
@@ -125,6 +180,26 @@
 			<button class="dismiss" type="button" onclick={() => (error = null)} aria-label="Dismiss">
 				×
 			</button>
+		</div>
+	{/if}
+
+	{#if learnResult}
+		<div class="learn-banner" class:warn={learnResult.insufficient}>
+			<div>
+				<strong>{learnResult.saved ? 'Model trained and saved' : 'Model not saved'}</strong>
+				<span>
+					{learnResult.insufficient
+						? learnResult.reason
+						: `${learnResult.n_samples} samples · ROC-AUC ${learnResult.cv_roc_auc.toFixed(3)} · precision ${fmtPct(learnResult.cv_precision)}`}
+				</span>
+			</div>
+			{#if learnResult.feature_importance.length > 0}
+				<div class="features">
+					{#each learnResult.feature_importance.slice(0, 4) as [feature, value] (feature)}
+						<span>{feature} · {value.toFixed(3)}</span>
+					{/each}
+				</div>
+			{/if}
 		</div>
 	{/if}
 
@@ -165,7 +240,99 @@
 
 			<MetricsPanel metrics={result.metrics} nSignals={result.n_signals} />
 
+			<div class="learning-panel">
+				<div>
+					<div class="label">Learning layer</div>
+					<p>{result.learning.summary}</p>
+				</div>
+				<div class="learning-stats">
+					<span>Model {result.learning.model_loaded ? 'loaded' : 'missing'}</span>
+					<span>Selected {result.learning.selected_signals}/{result.n_raw_signals}</span>
+					<span>Avg ML {fmtPct(result.learning.avg_meta_score)}</span>
+					<span class={pnlDelta >= 0 ? 'pos' : 'neg'}>Δ {formatUsd(pnlDelta)}</span>
+				</div>
+			</div>
+
+			<div class="comparison">
+				<div>
+					<span class="label">Raw scanner</span>
+					<strong>{formatUsd(result.baseline_metrics.total_pnl_cents)}</strong>
+					<small>
+						{result.baseline_metrics.n_trades} trades · {fmtPct(result.baseline_metrics.win_rate)} win
+					</small>
+				</div>
+				<div>
+					<span class="label">Active run</span>
+					<strong class={result.metrics.total_pnl_cents >= 0 ? 'pos' : 'neg'}>
+						{formatUsd(result.metrics.total_pnl_cents)}
+					</strong>
+					<small>{result.metrics.n_trades} trades · {fmtPct(result.metrics.win_rate)} win</small>
+				</div>
+				<div>
+					<span class="label">Data</span>
+					<strong>{fmtPct(result.data_completeness)}</strong>
+					<small>{result.catalysts.length} FMP catalysts attached</small>
+				</div>
+			</div>
+
 			<EquityCurve curve={result.equity_curve} />
+
+			<div class="ledger">
+				<div class="label">Evidence ledger</div>
+				{#if result.trades.length === 0}
+					<div class="empty-ledger">No executed trades. Train over more history or lower the ML threshold.</div>
+				{:else}
+					<div class="ledger-list">
+						{#each result.trades as trade (trade.signal_id)}
+							<details class="trade-card" open={result.trades.length <= 4}>
+								<summary>
+									<span class="side" class:long={trade.is_long} class:short={!trade.is_long}>
+										{trade.is_long ? 'Long' : 'Short'}
+									</span>
+									<strong>{trade.kind.replaceAll('_', ' ')}</strong>
+									<span>{fmtTime(trade.entry_ts)}</span>
+									<span class={trade.pnl_cents >= 0 ? 'pos' : 'neg'}>{formatUsd(trade.pnl_cents)}</span>
+									<span>{trade.exit_reason}</span>
+								</summary>
+								<div class="trade-body">
+									<div>
+										<div class="label">Signal thesis</div>
+										<p>{trade.attribution.summary}</p>
+										<div class="chips">
+											<span>Conf {fmtPct(trade.confidence)}</span>
+											<span>Quality {fmtPct(trade.quality_score)}</span>
+											<span>ML {fmtPct(trade.meta_score)}</span>
+										</div>
+									</div>
+									<div>
+										<div class="label">Move evidence</div>
+										<p>{trade.entry_explanation?.summary ?? 'No entry-state explanation available.'}</p>
+										<p>{trade.exit_explanation?.summary ?? 'No exit-state explanation available.'}</p>
+									</div>
+									<div>
+										<div class="label">FMP catalysts</div>
+										{#if trade.catalysts.length === 0}
+											<p>No nearby FMP catalyst found for this signal window.</p>
+										{:else}
+											<div class="catalyst-list">
+												{#each trade.catalysts as catalyst (`${trade.signal_id}-${catalyst.kind}-${catalyst.ts}-${catalyst.title}`)}
+													<span>
+														{catalyst.kind.replaceAll('_', ' ')} · {fmtPct(catalyst.score)} · {catalyst.title}
+													</span>
+												{/each}
+											</div>
+										{/if}
+									</div>
+									<div class="diagnosis">
+										<div class="label">Diagnosis</div>
+										<p>{trade.diagnosis}</p>
+									</div>
+								</div>
+							</details>
+						{/each}
+					</div>
+				{/if}
+			</div>
 
 			<div class="attr">
 				<div class="label">Exit attribution</div>
@@ -332,6 +499,151 @@
 		}
 	}
 
+	.learn-banner,
+	.learning-panel,
+	.comparison,
+	.trade-card,
+	.empty-ledger {
+		border: 1px solid var(--border);
+		border-radius: 8px;
+		background: var(--panel);
+	}
+	.learn-banner {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.9rem;
+		padding: 0.8rem 0.9rem;
+	}
+	.learn-banner.warn {
+		border-color: color-mix(in srgb, var(--warn) 55%, var(--border));
+	}
+	.learn-banner strong {
+		display: block;
+		color: var(--text);
+		font-size: 0.9rem;
+	}
+	.learn-banner span,
+	.learning-panel p,
+	.trade-body p {
+		color: var(--muted);
+		font-size: 0.78rem;
+		line-height: 1.4;
+		margin: 0.2rem 0 0;
+	}
+	.features,
+	.learning-stats,
+	.chips,
+	.catalyst-list {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.4rem;
+	}
+	.features span,
+	.learning-stats span,
+	.chips span,
+	.catalyst-list span {
+		max-width: 100%;
+		padding: 0.2rem 0.42rem;
+		border: 1px solid var(--border);
+		border-radius: 6px;
+		background: var(--surface);
+		color: var(--text);
+		font-size: 0.68rem;
+		font-weight: 650;
+	}
+	.learning-panel {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) auto;
+		gap: 0.8rem;
+		align-items: center;
+		padding: 0.85rem 0.95rem;
+	}
+	.learning-stats {
+		justify-content: flex-end;
+	}
+	.comparison {
+		display: grid;
+		grid-template-columns: repeat(3, minmax(0, 1fr));
+		overflow: hidden;
+	}
+	.comparison > div {
+		display: grid;
+		gap: 0.25rem;
+		padding: 0.8rem 0.95rem;
+		border-right: 1px solid var(--border);
+	}
+	.comparison > div:last-child {
+		border-right: 0;
+	}
+	.comparison strong {
+		font-size: 1.2rem;
+		color: var(--text);
+		font-variant-numeric: tabular-nums;
+	}
+	.comparison small {
+		color: var(--muted);
+		font-size: 0.74rem;
+	}
+	.ledger {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+	}
+	.empty-ledger {
+		padding: 1rem;
+		color: var(--muted);
+		font-size: 0.85rem;
+	}
+	.ledger-list {
+		display: grid;
+		gap: 0.55rem;
+	}
+	.trade-card {
+		overflow: hidden;
+	}
+	.trade-card summary {
+		display: grid;
+		grid-template-columns: auto minmax(130px, 1fr) auto auto auto;
+		align-items: center;
+		gap: 0.65rem;
+		min-height: 42px;
+		padding: 0 0.8rem;
+		cursor: pointer;
+		color: var(--muted);
+		font-size: 0.78rem;
+	}
+	.trade-card summary strong {
+		color: var(--text);
+		text-transform: capitalize;
+	}
+	.side {
+		padding: 0.18rem 0.42rem;
+		border-radius: 6px;
+		font-size: 0.68rem;
+		font-weight: 760;
+	}
+	.side.long {
+		background: color-mix(in srgb, var(--buy) 14%, transparent);
+		color: var(--buy);
+	}
+	.side.short {
+		background: color-mix(in srgb, var(--sell) 14%, transparent);
+		color: var(--sell);
+	}
+	.trade-body {
+		display: grid;
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+		gap: 0.8rem;
+		padding: 0.8rem;
+		border-top: 1px solid var(--border);
+	}
+	.diagnosis {
+		grid-column: 1 / -1;
+		padding-top: 0.6rem;
+		border-top: 1px solid var(--border);
+	}
+
 	.attr {
 		display: flex;
 		flex-direction: column;
@@ -384,5 +696,25 @@
 		text-align: center;
 		color: var(--muted);
 		font-style: italic;
+	}
+	@media (max-width: 860px) {
+		.learning-panel,
+		.comparison,
+		.trade-body {
+			grid-template-columns: 1fr;
+		}
+		.learning-stats {
+			justify-content: flex-start;
+		}
+		.comparison > div {
+			border-right: 0;
+			border-bottom: 1px solid var(--border);
+		}
+		.trade-card summary {
+			grid-template-columns: auto minmax(0, 1fr) auto;
+		}
+		.trade-card summary span:nth-last-child(-n + 2) {
+			display: none;
+		}
 	}
 </style>

@@ -16,11 +16,13 @@ import polars as pl
 
 from intradayx.api import settings_store
 from intradayx.api.schemas import (
+    BacktestLearningDTO,
     BacktestResponse,
     BarsResponse,
     CandleDTO,
     CatalystEventDTO,
     EquityPointDTO,
+    LearnResponse,
     LevelsDTO,
     LinePointDTO,
     MarkerDTO,
@@ -32,14 +34,16 @@ from intradayx.api.schemas import (
     TodStatDTO,
     TradeDTO,
     VolumePointDTO,
+    to_attribution_dto,
     to_signal_dto,
 )
 from intradayx.attribution.catalysts import (
     catalyst_events_from_earnings_dates,
     enrich_with_catalysts,
+    nearest_catalysts,
 )
 from intradayx.attribution.move_explainer import MoveExplanation, explain_latest_move
-from intradayx.backtest.runner import run_backtest
+from intradayx.backtest.runner import Trade, simulate_trades
 from intradayx.data.factory import default_provider
 from intradayx.data.provider import DataError, DataProvider
 from intradayx.domain.bars import Timeframe
@@ -64,22 +68,38 @@ def get_engine() -> SignalEngine:
 
 def _meta_filter_for(symbol: str, scanner: str) -> MetaFilter | None:
     """Load a persisted MetaFilter for the symbol/scanner if one exists."""
-    models_dir = Path(settings_store.app_data_dir()) / "models"
-    candidates = (
+    loaded, _ = _meta_filter_with_path(symbol, scanner)
+    return loaded
+
+
+def _meta_model_candidates(symbol: str, scanner: str) -> list[Path]:
+    names = (
         f"{symbol.upper()}_{scanner}_forward.joblib",
         f"{symbol.upper()}_{scanner}.joblib",
     )
-    for name in candidates:
-        path = models_dir / name
+    models_dir = Path(settings_store.app_data_dir()) / "models"
+    local_dir = Path("data/meta_filters")
+    return [base / name for base in (models_dir, local_dir) for name in names]
+
+
+def _meta_filter_with_path(symbol: str, scanner: str) -> tuple[MetaFilter | None, Path | None]:
+    """Load a persisted MetaFilter and return the path used."""
+    for path in _meta_model_candidates(symbol, scanner):
         if path.exists():
             try:
                 mf = MetaFilter.load(path)
                 if mf is not None and mf.is_fitted:
                     logger.info("loaded meta-filter: %s", path)
-                    return mf
+                    return mf, path
             except Exception:
                 logger.warning("failed to load meta-filter %s", path, exc_info=True)
-    return None
+    return None, None
+
+
+def _model_save_path(symbol: str, scanner: str) -> Path:
+    models_dir = Path(settings_store.app_data_dir()) / "models"
+    models_dir.mkdir(parents=True, exist_ok=True)
+    return models_dir / f"{symbol.upper()}_{scanner}.joblib"
 
 
 def _epoch(ts: datetime) -> int:
@@ -131,7 +151,7 @@ def _fetch_catalysts(
     """Best-effort FMP catalyst fetch; never lets optional evidence break bars."""
     try:
         return provider.catalyst_events(symbol.upper(), start, end)
-    except CapabilityError:
+    except (CapabilityError, AttributeError):
         pass
     except DataError:
         logger.info("failed to fetch catalysts for %s", symbol.upper(), exc_info=True)
@@ -140,7 +160,7 @@ def _fetch_catalysts(
     if provider.capabilities().supports(Capability.EARNINGS_CALENDAR):
         try:
             return catalyst_events_from_earnings_dates(provider.earnings_dates(symbol.upper()))
-        except (CapabilityError, DataError):
+        except (CapabilityError, DataError, AttributeError):
             logger.info("failed to fetch earnings catalysts for %s", symbol.upper(), exc_info=True)
     return []
 
@@ -170,6 +190,128 @@ def _clamped_start(end: datetime, days: int, caps: ProviderCapabilities, tf: Tim
         return requested
     earliest = end - window - timedelta(days=1)
     return max(requested, earliest)
+
+
+def _metrics_dto(metrics, trades: list[Trade]) -> MetricsDTO:
+    from intradayx.attribution.validation import deflated_sharpe_ratio
+    from intradayx.backtest.runner import DEFAULT_NOTIONAL_CENTS
+
+    returns = [t.pnl_cents / DEFAULT_NOTIONAL_CENTS for t in trades]
+    n_trials = 1
+    deflated_sharpe = deflated_sharpe_ratio(returns, n_trials) if len(returns) >= 3 else None
+    return MetricsDTO(
+        n_trades=metrics.n_trades,
+        win_rate=metrics.win_rate,
+        expectancy_cents=metrics.expectancy_cents,
+        profit_factor=None if metrics.profit_factor == float("inf") else metrics.profit_factor,
+        total_pnl_cents=metrics.total_pnl_cents,
+        max_drawdown_cents=metrics.max_drawdown_cents,
+        sharpe_per_trade=metrics.sharpe_per_trade,
+        deflated_sharpe=deflated_sharpe,
+        n_trials=n_trials,
+        per_tod=[
+            TodStatDTO(
+                bucket=s.bucket,
+                n=s.n,
+                win_rate=s.win_rate,
+                expectancy_cents=s.expectancy_cents,
+            )
+            for s in metrics.per_tod.values()
+        ],
+    )
+
+
+def _explain_at(df: pl.DataFrame, ts: datetime, data_completeness: float) -> MoveExplanation | None:
+    frame = df.filter(pl.col("ts") <= ts).tail(1)
+    return explain_latest_move(frame, data_completeness)
+
+
+def _nearby_catalyst_dtos(
+    catalysts: list[CatalystEvent], ts: datetime, *, limit: int = 3
+) -> list[CatalystEventDTO]:
+    return [
+        _catalyst_event_dto(event)
+        for event, _offset, _score in nearest_catalysts(ts, catalysts)[:limit]
+    ]
+
+
+def _trade_diagnosis(
+    trade: Trade,
+    signal,
+    entry_move: MoveExplanation | None,
+    exit_move: MoveExplanation | None,
+    catalysts: list[CatalystEventDTO],
+) -> str:
+    top = (
+        signal.attribution.primary_cause.label
+        if signal.attribution.primary_cause
+        else "No primary cause"
+    )
+    model = (
+        f" Meta-filter score {signal.meta_score:.0%}."
+        if signal.meta_score is not None
+        else " No learned model score was available."
+    )
+    catalyst = f" Nearest FMP catalyst: {catalysts[0].title}." if catalysts else ""
+    exit_state = f" Exit state: {exit_move.summary}" if exit_move is not None else ""
+    if trade.exit_reason.value == "target":
+        return f"Target-first winner. Signal thesis: {top}.{model}{catalyst}{exit_state}"
+    if trade.exit_reason.value == "stop":
+        entry_state = f" Entry state: {entry_move.summary}" if entry_move is not None else ""
+        return (
+            "Stop-first loser. Thesis failed or timing was late: "
+            f"{top}.{model}{catalyst}{entry_state}"
+        )
+    return (
+        "Timed exit. Setup did not resolve before max hold. Signal thesis: "
+        f"{top}.{model}{catalyst}{exit_state}"
+    )
+
+
+def _trade_dtos(
+    trades: list[Trade],
+    signals,
+    df: pl.DataFrame,
+    data_completeness: float,
+    catalysts: list[CatalystEvent],
+) -> list[TradeDTO]:
+    by_id = {s.signal_id: s for s in signals}
+    out: list[TradeDTO] = []
+    for trade in trades:
+        signal = by_id.get(trade.signal_id)
+        if signal is None:
+            continue
+        entry_move = _explain_at(df, trade.entry_ts, data_completeness)
+        exit_move = _explain_at(df, trade.exit_ts, data_completeness)
+        catalyst_dtos = _nearby_catalyst_dtos(catalysts, signal.ts)
+        out.append(
+            TradeDTO(
+                signal_id=trade.signal_id,
+                signal_ts=signal.ts.isoformat(),
+                kind=trade.kind,
+                side=signal.side.value,
+                is_long=trade.is_long,
+                entry_ts=trade.entry_ts.isoformat(),
+                exit_ts=trade.exit_ts.isoformat(),
+                entry=trade.entry,
+                exit=trade.exit,
+                shares=trade.shares,
+                pnl_cents=trade.pnl_cents,
+                exit_reason=trade.exit_reason.value,
+                tod_bucket=trade.tod_bucket,
+                confidence=signal.confidence,
+                quality_score=signal.quality_score,
+                meta_score=signal.meta_score,
+                attribution=to_attribution_dto(signal.attribution),
+                catalysts=catalyst_dtos,
+                entry_explanation=_move_explanation_dto(entry_move),
+                exit_explanation=_move_explanation_dto(exit_move),
+                diagnosis=_trade_diagnosis(
+                    trade, signal, entry_move, exit_move, catalyst_dtos
+                ),
+            )
+        )
+    return out
 
 
 def run_scan(symbol: str, timeframe: str, days: int, scanner: str = "reversal") -> ScanResponse:
@@ -296,10 +438,15 @@ def build_chart(symbol: str, timeframe: str, days: int, scanner: str = "reversal
 
 
 def run_backtest_dto(
-    symbol: str, timeframe: str, days: int, max_hold: int, scanner: str = "reversal"
+    symbol: str,
+    timeframe: str,
+    days: int,
+    max_hold: int,
+    scanner: str = "reversal",
+    *,
+    use_learning: bool = True,
+    meta_threshold: float = 0.5,
 ) -> BacktestResponse:
-    from intradayx.attribution.validation import deflated_sharpe_ratio
-    from intradayx.backtest.runner import DEFAULT_NOTIONAL_CENTS
     from intradayx.signals.strategy import make_strategy
 
     tf = Timeframe(timeframe)
@@ -308,64 +455,152 @@ def run_backtest_dto(
     caps = provider.capabilities()
     start = _clamped_start(end, days, caps, tf)
     bars = provider.bars(symbol.upper(), start, end, tf)
-    # Build the engine for the CHOSEN scanner (mirrors run_scan), not the cached
-    # default-reversal engine — so the backtest actually runs the selected scanner.
-    meta_filter = _meta_filter_for(symbol, scanner)
-    engine = SignalEngine(make_strategy(scanner), meta_filter=meta_filter)
-    res = run_backtest(bars, provider.capabilities(), engine=engine, max_hold_bars=max_hold)
-    m = res.metrics
 
-    # Deflated Sharpe — IN-SAMPLE, n_trials=1, computed over this backtest's
-    # realized per-trade returns (pnl / notional). Identical method to the CLI
-    # `backtest` command (which uses /$10k notional, trials=1). Needs >= 3
-    # trades for skew/kurtosis moments; below that it is honestly None, never
-    # fabricated. OOS deflation by a threshold grid lives in walk-forward.
-    returns = [t.pnl_cents / DEFAULT_NOTIONAL_CENTS for t in res.trades]
-    n_trials = 1
-    deflated_sharpe = deflated_sharpe_ratio(returns, n_trials) if len(returns) >= 3 else None
+    if bars.is_empty():
+        empty_metrics = _metrics_dto(simulate_trades([], bars).metrics, [])
+        return BacktestResponse(
+            symbol=symbol.upper(),
+            timeframe=tf.value,
+            n_signals=0,
+            n_raw_signals=0,
+            data_completeness=0.0,
+            learning=BacktestLearningDTO(
+                enabled=use_learning,
+                model_loaded=False,
+                meta_threshold=meta_threshold,
+                scored_signals=0,
+                selected_signals=0,
+                rejected_signals=0,
+                summary="No bars returned, so there were no signals to learn from.",
+            ),
+            metrics=empty_metrics,
+            baseline_metrics=empty_metrics,
+            trades=[],
+            equity_curve=[],
+            catalysts=[],
+        )
 
-    metrics = MetricsDTO(
-        n_trades=m.n_trades,
-        win_rate=m.win_rate,
-        expectancy_cents=m.expectancy_cents,
-        profit_factor=None if m.profit_factor == float("inf") else m.profit_factor,
-        total_pnl_cents=m.total_pnl_cents,
-        max_drawdown_cents=m.max_drawdown_cents,
-        sharpe_per_trade=m.sharpe_per_trade,
-        deflated_sharpe=deflated_sharpe,
-        n_trials=n_trials,
-        per_tod=[
-            TodStatDTO(
-                bucket=s.bucket,
-                n=s.n,
-                win_rate=s.win_rate,
-                expectancy_cents=s.expectancy_cents,
-            )
-            for s in m.per_tod.values()
+    fs = build_features(bars, caps)
+    catalysts = _fetch_catalysts(provider, symbol, start, end)
+    raw_signals = SignalEngine(make_strategy(scanner)).evaluate(fs)
+    raw_signals = enrich_with_catalysts(raw_signals, catalysts)
+    baseline = simulate_trades(raw_signals, bars, max_hold_bars=max_hold)
+
+    meta_filter, model_path = _meta_filter_with_path(symbol, scanner)
+    scored_signals = raw_signals
+    selected_signals = raw_signals
+    if use_learning and meta_filter is not None and meta_filter.is_fitted:
+        scored_signals = SignalEngine(make_strategy(scanner), meta_filter=meta_filter).evaluate(fs)
+        scored_signals = enrich_with_catalysts(scored_signals, catalysts)
+        selected_signals = [
+            s
+            for s in scored_signals
+            if s.meta_score is not None and s.meta_score >= meta_threshold
+        ]
+
+    active = simulate_trades(selected_signals, bars, max_hold_bars=max_hold)
+    meta_scores = [s.meta_score for s in scored_signals if s.meta_score is not None]
+    pnl_delta = active.metrics.total_pnl_cents - baseline.metrics.total_pnl_cents
+    if meta_filter is None:
+        summary = "No trained meta-filter is available yet; this run used raw scanner signals."
+    elif not use_learning:
+        summary = "Learning is disabled for this run; model scores were not applied."
+    else:
+        summary = (
+            f"Meta-filter selected {len(selected_signals)} of {len(scored_signals)} "
+            f"signals at threshold {meta_threshold:.0%}; P&L delta vs raw was "
+            f"{pnl_delta / 100:+.2f}."
+        )
+
+    return BacktestResponse(
+        symbol=bars.symbol,
+        timeframe=bars.timeframe.value,
+        n_signals=len(selected_signals),
+        n_raw_signals=len(raw_signals),
+        data_completeness=fs.data_completeness,
+        learning=BacktestLearningDTO(
+            enabled=use_learning,
+            model_loaded=meta_filter is not None,
+            model_path=str(model_path) if model_path is not None else None,
+            meta_threshold=meta_threshold,
+            scored_signals=len(meta_scores),
+            selected_signals=len(selected_signals),
+            rejected_signals=max(len(scored_signals) - len(selected_signals), 0),
+            avg_meta_score=(sum(meta_scores) / len(meta_scores)) if meta_scores else None,
+            pnl_delta_cents=pnl_delta,
+            summary=summary,
+        ),
+        metrics=_metrics_dto(active.metrics, active.trades),
+        baseline_metrics=_metrics_dto(baseline.metrics, baseline.trades),
+        trades=_trade_dtos(active.trades, selected_signals, fs.df, fs.data_completeness, catalysts),
+        equity_curve=[
+            EquityPointDTO(ts=ts.isoformat(), equity_cents=e) for ts, e in active.equity_curve
+        ],
+        catalysts=[
+            _catalyst_event_dto(event)
+            for event in _rank_chart_catalysts(catalysts, bars.end or end)
         ],
     )
-    return BacktestResponse(
-        symbol=res.symbol,
-        timeframe=res.timeframe.value,
-        n_signals=res.n_signals,
-        metrics=metrics,
-        trades=[
-            TradeDTO(
-                signal_id=t.signal_id,
-                kind=t.kind,
-                is_long=t.is_long,
-                entry_ts=t.entry_ts.isoformat(),
-                exit_ts=t.exit_ts.isoformat(),
-                entry=t.entry,
-                exit=t.exit,
-                shares=t.shares,
-                pnl_cents=t.pnl_cents,
-                exit_reason=t.exit_reason.value,
-                tod_bucket=t.tod_bucket,
-            )
-            for t in res.trades
-        ],
-        equity_curve=[
-            EquityPointDTO(ts=ts.isoformat(), equity_cents=e) for ts, e in res.equity_curve
-        ],
+
+
+def train_meta_filter_dto(
+    symbol: str,
+    timeframe: str,
+    days: int,
+    max_hold: int,
+    scanner: str = "reversal",
+    *,
+    min_samples: int = 30,
+) -> LearnResponse:
+    from intradayx.signals.meta_filter import train_meta_filter
+    from intradayx.signals.strategy import make_strategy
+
+    tf = Timeframe(timeframe)
+    provider = get_provider()
+    end = datetime.now(tz=UTC)
+    caps = provider.capabilities()
+    start = _clamped_start(end, days, caps, tf)
+    bars = provider.bars(symbol.upper(), start, end, tf)
+    if bars.is_empty():
+        return LearnResponse(
+            symbol=symbol.upper(),
+            timeframe=tf.value,
+            scanner=scanner,
+            saved=False,
+            n_samples=0,
+            pos_rate=0.0,
+            cv_accuracy=0.0,
+            cv_precision=0.0,
+            cv_recall=0.0,
+            cv_roc_auc=0.0,
+            insufficient=True,
+            reason="no bars returned",
+        )
+
+    signals = SignalEngine(make_strategy(scanner)).scan(bars, caps)
+    mf, result = train_meta_filter(
+        signals,
+        bars,
+        max_hold_bars=max_hold,
+        min_samples=min_samples,
+    )
+    save_path: Path | None = None
+    if not result.insufficient and mf.is_fitted:
+        save_path = _model_save_path(symbol, scanner)
+        mf.save(save_path)
+    return LearnResponse(
+        symbol=symbol.upper(),
+        timeframe=tf.value,
+        scanner=scanner,
+        saved=save_path is not None,
+        model_path=str(save_path) if save_path is not None else None,
+        n_samples=result.n_samples,
+        pos_rate=result.pos_rate,
+        cv_accuracy=result.cv_accuracy,
+        cv_precision=result.cv_precision,
+        cv_recall=result.cv_recall,
+        cv_roc_auc=result.cv_roc_auc,
+        insufficient=result.insufficient,
+        reason=result.reason,
+        feature_importance=result.feature_importance[:12],
     )

@@ -13,7 +13,7 @@
 // JS — exact to 2^53). Divide by 100 only for display, never for arithmetic.
 
 import { apiBase } from '$lib/api/backend';
-import type { Scanner } from '$lib/api/types';
+import type { Attribution, CatalystEvent, MoveExplanation, Scanner } from '$lib/api/types';
 
 type Fetch = typeof globalThis.fetch;
 
@@ -42,6 +42,17 @@ export interface BacktestParams {
 	max_hold: number;
 	/** Drives the backtest engine: the backend builds SignalEngine(make_strategy(scanner)). */
 	scanner: Scanner;
+	use_learning: boolean;
+	meta_threshold: number;
+}
+
+export interface LearnParams {
+	symbol: string;
+	timeframe: Timeframe;
+	days: number;
+	max_hold: number;
+	scanner: Scanner;
+	min_samples: number;
 }
 
 /** Mirrors TodStatDTO. expectancy_cents is a float (can be fractional cents). */
@@ -71,7 +82,9 @@ export interface BacktestMetrics {
 /** Mirrors TradeDTO. */
 export interface BacktestTrade {
 	signal_id: string;
+	signal_ts: string;
 	kind: string;
+	side: string;
 	is_long: boolean;
 	entry_ts: string; // ISO-8601 UTC
 	exit_ts: string; // ISO-8601 UTC
@@ -81,6 +94,14 @@ export interface BacktestTrade {
 	pnl_cents: number; // i64 cents
 	exit_reason: string;
 	tod_bucket: string;
+	confidence: number;
+	quality_score: number;
+	meta_score?: number | null;
+	attribution: Attribution;
+	catalysts: CatalystEvent[];
+	entry_explanation?: MoveExplanation | null;
+	exit_explanation?: MoveExplanation | null;
+	diagnosis: string;
 }
 
 /** Mirrors EquityPointDTO. */
@@ -94,9 +115,44 @@ export interface BacktestResponse {
 	symbol: string;
 	timeframe: string;
 	n_signals: number;
+	n_raw_signals: number;
+	data_completeness: number;
+	learning: BacktestLearning;
 	metrics: BacktestMetrics;
+	baseline_metrics: BacktestMetrics;
 	trades: BacktestTrade[];
 	equity_curve: EquityPoint[];
+	catalysts: CatalystEvent[];
+}
+
+export interface BacktestLearning {
+	enabled: boolean;
+	model_loaded: boolean;
+	model_path?: string | null;
+	meta_threshold: number;
+	scored_signals: number;
+	selected_signals: number;
+	rejected_signals: number;
+	avg_meta_score?: number | null;
+	pnl_delta_cents: number;
+	summary: string;
+}
+
+export interface LearnResponse {
+	symbol: string;
+	timeframe: string;
+	scanner: Scanner;
+	saved: boolean;
+	model_path?: string | null;
+	n_samples: number;
+	pos_rate: number;
+	cv_accuracy: number;
+	cv_precision: number;
+	cv_recall: number;
+	cv_roc_auc: number;
+	insufficient: boolean;
+	reason: string;
+	feature_importance: [string, number][];
 }
 
 /**
@@ -119,7 +175,9 @@ export async function runBacktest(
 			timeframe: params.timeframe,
 			days: params.days,
 			max_hold: params.max_hold,
-			scanner: params.scanner
+			scanner: params.scanner,
+			use_learning: params.use_learning,
+			meta_threshold: params.meta_threshold
 		})
 	});
 	if (!res.ok) {
@@ -133,6 +191,36 @@ export async function runBacktest(
 		throw new Error(`Backtest failed: ${res.status} ${res.statusText}${detail}`);
 	}
 	return (await res.json()) as BacktestResponse;
+}
+
+export async function trainBacktestModel(
+	fetchFn: Fetch,
+	params: LearnParams
+): Promise<LearnResponse> {
+	const base = await apiBase();
+	const res = await fetchFn(`${base}/api/learn`, {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify({
+			symbol: params.symbol.trim().toUpperCase(),
+			timeframe: params.timeframe,
+			days: params.days,
+			max_hold: params.max_hold,
+			scanner: params.scanner,
+			min_samples: params.min_samples
+		})
+	});
+	if (!res.ok) {
+		let detail = '';
+		try {
+			const body = (await res.json()) as { detail?: string };
+			if (body?.detail) detail = ` — ${body.detail}`;
+		} catch {
+			// non-JSON error body; status line is enough.
+		}
+		throw new Error(`Learning failed: ${res.status} ${res.statusText}${detail}`);
+	}
+	return (await res.json()) as LearnResponse;
 }
 
 /** Cents -> "$1,234.56" (display only). */

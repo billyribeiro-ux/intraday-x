@@ -18,6 +18,7 @@ class CauseDTO(BaseModel):
     score: float
     source: str
     label: str
+    evidence: dict[str, float] = {}
 
 
 class AttributionDTO(BaseModel):
@@ -47,7 +48,13 @@ class SignalDTO(BaseModel):
 def to_attribution_dto(a: Attribution) -> AttributionDTO:
     return AttributionDTO(
         ranked_causes=[
-            CauseDTO(kind=c.kind.value, score=c.score, source=c.source.value, label=c.label)
+            CauseDTO(
+                kind=c.kind.value,
+                score=c.score,
+                source=c.source.value,
+                label=c.label,
+                evidence=c.evidence,
+            )
             for c in a.ranked_causes
         ],
         data_completeness=a.data_completeness,
@@ -201,6 +208,8 @@ class BacktestRequest(BaseModel):
     days: int = 60
     max_hold: int = 24
     scanner: str = "reversal"  # "reversal" | "scalping" — which scanner to backtest
+    use_learning: bool = True
+    meta_threshold: float = 0.5
 
 
 class TodStatDTO(BaseModel):
@@ -238,7 +247,9 @@ class MetricsDTO(BaseModel):
 
 class TradeDTO(BaseModel):
     signal_id: str
+    signal_ts: str
     kind: str
+    side: str
     is_long: bool
     entry_ts: str
     exit_ts: str
@@ -248,6 +259,14 @@ class TradeDTO(BaseModel):
     pnl_cents: int
     exit_reason: str
     tod_bucket: str
+    confidence: float
+    quality_score: float
+    meta_score: float | None = None
+    attribution: AttributionDTO
+    catalysts: list[CatalystEventDTO] = []
+    entry_explanation: MoveExplanationDTO | None = None
+    exit_explanation: MoveExplanationDTO | None = None
+    diagnosis: str
 
 
 class EquityPointDTO(BaseModel):
@@ -259,6 +278,50 @@ class BacktestResponse(BaseModel):
     symbol: str
     timeframe: str
     n_signals: int
+    n_raw_signals: int
+    data_completeness: float
+    learning: BacktestLearningDTO
     metrics: MetricsDTO
+    baseline_metrics: MetricsDTO
     trades: list[TradeDTO]
     equity_curve: list[EquityPointDTO]
+    catalysts: list[CatalystEventDTO] = []
+
+
+class BacktestLearningDTO(BaseModel):
+    enabled: bool
+    model_loaded: bool
+    model_path: str | None = None
+    meta_threshold: float
+    scored_signals: int
+    selected_signals: int
+    rejected_signals: int
+    avg_meta_score: float | None = None
+    pnl_delta_cents: int = 0
+    summary: str
+
+
+class LearnRequest(BaseModel):
+    symbol: str
+    timeframe: str = "5m"
+    days: int = 180
+    max_hold: int = 24
+    scanner: str = "reversal"
+    min_samples: int = 30
+
+
+class LearnResponse(BaseModel):
+    symbol: str
+    timeframe: str
+    scanner: str
+    saved: bool
+    model_path: str | None = None
+    n_samples: int
+    pos_rate: float
+    cv_accuracy: float
+    cv_precision: float
+    cv_recall: float
+    cv_roc_auc: float
+    insufficient: bool
+    reason: str = ""
+    feature_importance: list[tuple[str, float]] = []
