@@ -126,6 +126,15 @@ export interface MoveExplanation {
 	summary: string;
 	drivers: MoveDriver[];
 }
+export interface CatalystEvent {
+	kind: string;
+	ts: string;
+	title: string;
+	source: string;
+	score: number;
+	url?: string | null;
+	evidence: Record<string, number | string>;
+}
 export interface BarsPayload {
 	symbol: string;
 	timeframe: string;
@@ -137,6 +146,7 @@ export interface BarsPayload {
 	levels: Levels | null;
 	data_completeness: number;
 	move_explanation?: MoveExplanation | null;
+	catalysts?: CatalystEvent[];
 }
 export interface ScanPayload {
 	symbol: string;

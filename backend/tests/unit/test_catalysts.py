@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime
 
-from intradayx.attribution.catalysts import enrich_with_earnings, is_near_earnings
+from intradayx.attribution.catalysts import (
+    enrich_with_catalysts,
+    enrich_with_earnings,
+    is_near_earnings,
+)
+from intradayx.domain.catalysts import CatalystEvent, CatalystKind
 from intradayx.domain.signals import (
     CauseKind,
     Side,
@@ -96,3 +101,63 @@ def test_enrich_does_not_demote_a_stronger_measured_cause() -> None:
     assert out.attribution.primary_cause.kind is CauseKind.CLIMAX_REVERSAL
     assert any(c.kind is CauseKind.EARNINGS for c in out.attribution.ranked_causes)
     assert out.attribution.uncertain is False
+
+
+def test_enrich_with_fmp_news_catalyst_clears_unexplained() -> None:
+    sig = _signal(3)
+    events = [
+        CatalystEvent.create(
+            kind=CatalystKind.NEWS,
+            ts=datetime(2024, 5, 3, 15, 30, tzinfo=UTC),
+            title="Company raises full-year guidance",
+            score=0.86,
+        )
+    ]
+
+    out = enrich_with_catalysts([sig], events, window_hours=6)[0]
+
+    assert out.attribution.primary_cause is not None
+    assert out.attribution.primary_cause.kind is CauseKind.NEWS
+    assert out.attribution.primary_cause.evidence["catalyst_offset_hours"] == 0.5
+    assert out.attribution.uncertain is False
+
+
+def test_enrich_with_catalyst_keeps_stronger_measured_primary() -> None:
+    from intradayx.attribution.engine import reversal_attribution
+    from intradayx.signals.params import ReversalParams
+
+    attr = reversal_attribution(
+        is_top=True,
+        c_climax=1.0,
+        c_volume=0.0,
+        c_value_area=0.0,
+        c_poc=0.0,
+        params=ReversalParams(),
+        data_completeness=1.0,
+    )
+    sig = Signal.create(
+        symbol="AAPL",
+        ts=datetime(2024, 5, 3, 16, 0, tzinfo=UTC),
+        kind=SignalKind.REVERSAL_TOP,
+        side=Side.SELL,
+        confidence=0.5,
+        entry=100.0,
+        stop=101.0,
+        targets=(98.0,),
+        time_of_day_bucket="afternoon",
+        attribution=attr,
+    )
+    events = [
+        CatalystEvent.create(
+            kind=CatalystKind.ANALYST_GRADE,
+            ts=datetime(2024, 5, 3, 15, 0, tzinfo=UTC),
+            title="Example Bank: maintained Buy",
+            score=0.58,
+        )
+    ]
+
+    out = enrich_with_catalysts([sig], events, window_hours=6)[0]
+
+    assert out.attribution.primary_cause is not None
+    assert out.attribution.primary_cause.kind is CauseKind.CLIMAX_REVERSAL
+    assert any(c.kind is CauseKind.ANALYST_ACTION for c in out.attribution.ranked_causes)

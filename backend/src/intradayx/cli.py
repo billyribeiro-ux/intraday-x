@@ -117,12 +117,24 @@ def scan(
         signals = [
             s for s in signals if s.meta_score is not None and s.meta_score >= meta_threshold
         ]
-    from intradayx.domain.capabilities import Capability
+    from intradayx.attribution.catalysts import (
+        catalyst_events_from_earnings_dates,
+        enrich_with_catalysts,
+    )
+    from intradayx.data.provider import DataError
+    from intradayx.domain.capabilities import Capability, CapabilityError
 
-    if caps.supports(Capability.EARNINGS_CALENDAR):
-        from intradayx.attribution.catalysts import enrich_with_earnings
-
-        signals = enrich_with_earnings(signals, provider.earnings_dates(ticker.upper()))
+    events = []
+    try:
+        events = provider.catalyst_events(ticker.upper(), start, end)
+    except (CapabilityError, DataError):
+        if caps.supports(Capability.EARNINGS_CALENDAR):
+            try:
+                dates = provider.earnings_dates(ticker.upper())
+                events = catalyst_events_from_earnings_dates(dates)
+            except (CapabilityError, DataError):
+                events = []
+    signals = enrich_with_catalysts(signals, events)
     filters = []
     if quality_threshold > 0:
         filters.append(f"quality >= {quality_threshold:.2f}")

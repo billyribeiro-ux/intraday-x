@@ -62,6 +62,10 @@ class CauseKind(StrEnum):
     SHORT_SQUEEZE = "short_squeeze"  # Phase 8 (gated)
     GAMMA_SQUEEZE = "gamma_squeeze"  # Phase 9 (gated)
     EARNINGS = "earnings"  # move coincides with scheduled earnings (a named catalyst)
+    NEWS = "news"  # FMP stock news proximity
+    PRESS_RELEASE = "press_release"  # FMP company press release proximity
+    ANALYST_ACTION = "analyst_action"  # FMP analyst grade / rating action proximity
+    PRICE_TARGET = "price_target"  # FMP analyst price-target context
     UNEXPLAINED = "unexplained"  # probable external catalyst; cause unidentified
 
 

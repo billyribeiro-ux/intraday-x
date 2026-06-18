@@ -3,7 +3,7 @@
 
 	import { getBars, scan } from '$lib/api/client';
 	import { getSettings } from '$lib/api/settings';
-	import type { BarsPayload, ScanPayload, Scanner, Signal } from '$lib/api/types';
+	import type { BarsPayload, CatalystEvent, ScanPayload, Scanner, Signal } from '$lib/api/types';
 	import PriceChart from '$lib/chart/PriceChart.svelte';
 	import { timeframeToSeconds } from '$lib/chart/time';
 	import ConnectionStatus from '$lib/components/ConnectionStatus.svelte';
@@ -179,6 +179,7 @@
 	const studies = $derived(bars?.studies ?? []);
 	const markers = $derived(bars?.markers ?? []);
 	const move = $derived(bars?.move_explanation ?? null);
+	const catalysts = $derived(bars?.catalysts ?? []);
 
 	const lastClose = $derived(candles.at(-1)?.close ?? null);
 	const completeness = $derived(bars?.data_completeness ?? null);
@@ -194,6 +195,25 @@
 
 	function fmtPct(value: number | null): string {
 		return value === null ? '--' : `${Math.round(value * 100)}%`;
+	}
+
+	function fmtCatalystTime(value: string): string {
+		const ts = new Date(value);
+		if (Number.isNaN(ts.getTime())) return '';
+		return ts.toLocaleString(undefined, {
+			month: 'short',
+			day: 'numeric',
+			hour: 'numeric',
+			minute: '2-digit'
+		});
+	}
+
+	function catalystKindLabel(kind: string): string {
+		return kind.replaceAll('_', ' ');
+	}
+
+	function catalystKey(catalyst: CatalystEvent): string {
+		return `${catalyst.kind}-${catalyst.ts}-${catalyst.title}`;
 	}
 
 	function fmpLabel(): string {
@@ -331,6 +351,27 @@
 								<span title={driver.label}>{driver.label} · {fmtPct(driver.score)}</span>
 							{/each}
 						</div>
+						{#if catalysts.length > 0}
+							<div class="catalysts">
+								<div class="state-row">
+									<span class="state-kicker">FMP catalysts</span>
+								</div>
+								{#each catalysts.slice(0, 3) as catalyst (catalystKey(catalyst))}
+									{@const meta = `${catalystKindLabel(catalyst.kind)} · ${fmtPct(catalyst.score)} · ${fmtCatalystTime(catalyst.ts)}`}
+									{#if catalyst.url}
+										<a class="catalyst-row" href={catalyst.url} target="_blank" rel="noreferrer">
+											<span>{meta}</span>
+											<strong>{catalyst.title}</strong>
+										</a>
+									{:else}
+										<div class="catalyst-row">
+											<span>{meta}</span>
+											<strong>{catalyst.title}</strong>
+										</div>
+									{/if}
+								{/each}
+							</div>
+						{/if}
 					</div>
 				{/if}
 				<div class="signals-scroll">
@@ -600,6 +641,40 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+	}
+	.catalysts {
+		display: grid;
+		gap: 0.45rem;
+		margin-top: 0.7rem;
+		padding-top: 0.65rem;
+		border-top: 1px solid var(--border);
+	}
+	.catalyst-row {
+		display: grid;
+		gap: 0.18rem;
+		min-width: 0;
+		color: inherit;
+		text-decoration: none;
+	}
+	.catalyst-row:hover strong {
+		color: var(--accent);
+	}
+	.catalyst-row span {
+		color: var(--muted);
+		font-size: 0.65rem;
+		font-weight: 700;
+		text-transform: capitalize;
+	}
+	.catalyst-row strong {
+		color: var(--text);
+		font-size: 0.73rem;
+		font-weight: 650;
+		line-height: 1.3;
+		overflow: hidden;
+		display: -webkit-box;
+		line-clamp: 2;
+		-webkit-line-clamp: 2;
+		-webkit-box-orient: vertical;
 	}
 	.signals-scroll {
 		min-height: 0;

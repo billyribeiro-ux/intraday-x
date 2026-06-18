@@ -168,6 +168,16 @@ class MoveExplanationDTO(BaseModel):
     drivers: list[MoveDriverDTO]
 
 
+class CatalystEventDTO(BaseModel):
+    kind: str
+    ts: str
+    title: str
+    source: str
+    score: float
+    url: str | None = None
+    evidence: dict[str, float | str] = {}
+
+
 class BarsResponse(BaseModel):
     symbol: str
     timeframe: str
@@ -179,6 +189,7 @@ class BarsResponse(BaseModel):
     levels: LevelsDTO | None
     data_completeness: float
     move_explanation: MoveExplanationDTO | None = None
+    catalysts: list[CatalystEventDTO] = []
 
 
 # --- backtest ---

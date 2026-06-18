@@ -15,6 +15,7 @@ from datetime import date, datetime
 from intradayx.data.provider import DataProvider, Session
 from intradayx.domain.bars import BarSet, Timeframe
 from intradayx.domain.capabilities import ProviderCapabilities
+from intradayx.domain.catalysts import CatalystEvent
 from intradayx.domain.internals import InternalsSeries, InternalSymbol
 from intradayx.domain.options import OptionChain
 from intradayx.domain.shorts import BorrowRate, ShortInterest, ShortVolume
@@ -84,3 +85,8 @@ class CachingProvider(DataProvider):
 
     def earnings_dates(self, ticker: str) -> list[date]:
         return self.inner.earnings_dates(ticker)
+
+    def catalyst_events(
+        self, ticker: str, start: datetime, end: datetime
+    ) -> list[CatalystEvent]:
+        return self.inner.catalyst_events(ticker, start, end)
