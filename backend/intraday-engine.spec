@@ -18,8 +18,8 @@
 #   binary builds fine and then dies at runtime with ModuleNotFoundError /
 #   missing-.dylib. collect_all pulls the submodules + data files + compiled
 #   binaries so the engine boots inside the Tauri shell, where there is no Python
-#   env to fall back to. The heavy ML stack is intentionally NOT bundled (see the
-#   note at _COLLECT_ALL) — the app never imports it.
+#   env to fall back to. The desktop API now exposes the lean MetaFilter path, so
+#   sklearn/joblib are bundled; heavier research-only ML packages stay out.
 
 import os
 import sys
@@ -63,13 +63,12 @@ def _collect(pkg):
 
 # Full collect_all for the packages that hide submodules / data / native libs
 # from static analysis. Order is irrelevant; duplicates are de-duped by build.
-# NOTE: the desktop app's API surface (scan / backtest / bars / capabilities /
-# settings / ws) imports NONE of the heavy ML stack at startup OR on any request
-# path — verified: lightgbm/xgboost/catboost/shap/tsfresh/sklearn/statsmodels are
-# only used by the CLI `learn` command, which the app does not expose. So the
-# sidecar is built with `--extra api` only (NOT `ml`/`export`), which cuts the
-# binary from ~290MB to a fraction and slashes the onefile cold-start. The
-# backtest's Deflated Sharpe uses numpy + scipy.stats (base deps), so scipy stays.
+# NOTE: the desktop app's heavy research stack
+# (lightgbm/xgboost/catboost/shap/tsfresh/statsmodels/etc.) is still CLI-only.
+# The desktop /api/learn route uses the lean MetaFilter runtime: scikit-learn's
+# HistGradientBoosting pipeline plus joblib persistence. So the sidecar is built
+# with `--extra desktop --extra api` only (NOT full `ml`/`export`). The backtest's
+# Deflated Sharpe uses numpy + scipy.stats (base deps), so scipy stays.
 _COLLECT_ALL = [
     # Data engines (Rust/C extensions + Arrow data files)
     "polars",
@@ -86,6 +85,10 @@ _COLLECT_ALL = [
     "pydantic",
     "pydantic_core",    # pydantic v2's compiled core
     "apscheduler",
+    # Desktop learning runtime (/api/learn + MetaFilter.load/predict)
+    "sklearn",
+    "joblib",
+    "threadpoolctl",
     # Data vendor (free, non-broker) + its parsers
     "yfinance",
 ]
@@ -134,10 +137,10 @@ for _pkg in ("uvloop", "httptools", "websockets", "wsproto", "h11", "h2", "anyio
 # lazily; pin it so /metrics doesn't 500 inside the bundle.
 hiddenimports += collect_submodules("prometheus_client")
 
-# NOTE: no libomp.dylib bundling. The trimmed sidecar (api-only) links no
-# OpenMP-dependent libs — lightgbm/xgboost/sklearn are excluded. If the ML stack
-# is ever added back to the sidecar, restore an `@rpath/libomp.dylib` bundler
-# (from `brew --prefix libomp`) or lightgbm/xgboost will fail to import.
+# NOTE: no explicit libomp.dylib bundling here. collect_all("sklearn") should
+# bring the wheel's needed runtime pieces into the sidecar; the bundled-engine
+# smoke test will catch a missing dylib. Do not add LightGBM/XGBoost without also
+# restoring explicit libomp bundling (from `brew --prefix libomp`).
 
 # ------------------------------------------------------------------------------
 a = Analysis(

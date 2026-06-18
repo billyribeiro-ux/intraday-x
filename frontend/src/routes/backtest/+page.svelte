@@ -184,11 +184,11 @@
 	{/if}
 
 	{#if learnResult}
-		<div class="learn-banner" class:warn={learnResult.insufficient}>
+		<div class="learn-banner" class:warn={!learnResult.saved}>
 			<div>
 				<strong>{learnResult.saved ? 'Model trained and saved' : 'Model not saved'}</strong>
 				<span>
-					{learnResult.insufficient
+					{learnResult.reason
 						? learnResult.reason
 						: `${learnResult.n_samples} samples · ROC-AUC ${learnResult.cv_roc_auc.toFixed(3)} · precision ${fmtPct(learnResult.cv_precision)}`}
 				</span>
@@ -283,8 +283,8 @@
 					<div class="empty-ledger">No executed trades. Train over more history or lower the ML threshold.</div>
 				{:else}
 					<div class="ledger-list">
-						{#each result.trades as trade (trade.signal_id)}
-							<details class="trade-card" open={result.trades.length <= 4}>
+						{#each result.trades as trade, i (trade.signal_id)}
+							<details class="trade-card" open={i === 0 || result.trades.length <= 4}>
 								<summary>
 									<span class="side" class:long={trade.is_long} class:short={!trade.is_long}>
 										{trade.is_long ? 'Long' : 'Short'}

@@ -37,10 +37,10 @@ echo "==> intraday-x sidecar build (onedir)"
 echo "    backend:  ${BACKEND_DIR}"
 echo "    dest:     ${ENGINE_DIR}/ (inner exe: ${SIDECAR_NAME})"
 
-# 1. Sync the build env: pyinstaller (desktop) + the api extra (fastapi/uvicorn/
-#    websockets/apscheduler/prometheus). NOT ml/export — the app's API surface
-#    never imports them, so bundling them only bloats size + cold start. The base
-#    deps (polars/duckdb/pyarrow/pandas/scipy/yfinance) come with the project.
+# 1. Sync the build env: pyinstaller + lean MetaFilter runtime (desktop) and
+#    the api extra (fastapi/uvicorn/websockets/apscheduler/prometheus). NOT the
+#    full ml/export stacks — the desktop API needs sklearn/joblib for /api/learn,
+#    but not LightGBM/SHAP/CatBoost/etc.
 echo "==> [1/4] uv sync (desktop + api)"
 uv sync --extra desktop --extra api
 
@@ -63,7 +63,7 @@ mkdir -p "${DEST_DIR}"
 cp -R "dist/${SIDECAR_NAME}" "${ENGINE_DIR}"
 chmod +x "${ENGINE_DIR}/${SIDECAR_NAME}"
 
-# 4. Restore the full dev environment. The api-only `uv sync` in step 1 trims
+# 4. Restore the full dev environment. The desktop/api `uv sync` in step 1 trims
 #    ml/export OUT of the project venv, which then breaks `pytest`/`mypy`/`intradayx
 #    learn` until re-synced. The already-built binary is unaffected.
 echo "==> [4/5] restoring dev venv (ml + export)"

@@ -29,6 +29,7 @@ from intradayx.api import service
 from intradayx.data.providers.yfinance_provider import YFinanceProvider
 from intradayx.domain.bars import BarSet, Timeframe
 from intradayx.domain.capabilities import ProviderCapabilities
+from intradayx.signals.meta_filter import FitResult
 
 
 def _synthetic_bars(n: int = 400, *, seed: int = 42) -> BarSet:
@@ -199,3 +200,36 @@ def test_learn_endpoint_returns_training_report(client: TestClient) -> None:
     assert body["scanner"] == "scalping"
     assert body["n_samples"] >= 0
     assert "feature_importance" in body
+
+
+def test_learning_save_gate_rejects_zero_skill_model() -> None:
+    reason = service._meta_filter_save_rejection_reason(
+        FitResult(
+            cv_accuracy=0.5,
+            cv_precision=0.0,
+            cv_recall=0.0,
+            cv_roc_auc=0.5,
+            n_samples=30,
+            pos_rate=0.25,
+            feature_importance=[("confidence", 0.0)],
+        )
+    )
+
+    assert "not saved" in reason
+    assert "ROC-AUC" in reason
+
+
+def test_learning_save_gate_accepts_validated_model() -> None:
+    reason = service._meta_filter_save_rejection_reason(
+        FitResult(
+            cv_accuracy=0.62,
+            cv_precision=0.55,
+            cv_recall=0.4,
+            cv_roc_auc=0.58,
+            n_samples=45,
+            pos_rate=0.35,
+            feature_importance=[("confidence", 0.01)],
+        )
+    )
+
+    assert reason == ""

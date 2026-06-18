@@ -21,6 +21,17 @@ function inTauri(): boolean {
 	return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 }
 
+function isLocalDevOrigin(): boolean {
+	if (typeof location === 'undefined') return false;
+	return (
+		(location.hostname === 'localhost' ||
+			location.hostname === '127.0.0.1' ||
+			location.hostname === '::1' ||
+			location.hostname === '[::1]') &&
+		location.port.length > 0
+	);
+}
+
 function devBackend(): Backend {
 	const host = typeof location !== 'undefined' ? location.host : 'localhost:5173';
 	const wsProto =
@@ -43,9 +54,9 @@ async function resolvePort(): Promise<number | null> {
 			clearTimeout(timer);
 			resolve(port);
 		};
-		// 30s margin: a bundled PyInstaller onefile self-extracts on launch, so the
-		// engine's first handshake can lag several seconds on a cold start.
-		const timer = setTimeout(() => finish(null), 30000);
+		// The bundled onedir engine can still take a while on the first cold disk
+		// read. Wait long enough to avoid falling through to the app shell.
+		const timer = setTimeout(() => finish(null), 60000);
 		void once<{ port: number }>('backend-ready', (event) => finish(event.payload.port));
 		void invoke<number | null>('get_backend_port').then(
 			(port) => {
@@ -67,11 +78,13 @@ export function resolveBackend(): Promise<Backend> {
 		const port = await resolvePort();
 		if (port == null) {
 			// Engine not ready yet (slow PyInstaller cold start) or `tauri dev`
-			// (no sidecar). Do NOT cache the fallback — clear it so the next call
-			// retries once the engine is up; otherwise we'd talk to a dead proxy
-			// for the whole session with no recovery.
+			// (no sidecar). Do NOT cache this result — clear it so the next call
+			// retries once the engine is up. In bundled production, never fall back
+			// to relative /api URLs: they hit the Tauri asset server and surface as
+			// misleading 404s like "Learning failed: 404 Not Found".
 			cached = null;
-			return devBackend();
+			if (isLocalDevOrigin()) return devBackend();
+			throw new Error('Backend engine is still starting. Wait a moment and try again.');
 		}
 		return { httpBase: `http://127.0.0.1:${port}`, wsBase: `ws://127.0.0.1:${port}` };
 	})();

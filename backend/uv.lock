@@ -1009,7 +1009,9 @@ backtest = [
     { name = "nautilus-trader" },
 ]
 desktop = [
+    { name = "joblib" },
     { name = "pyinstaller" },
+    { name = "scikit-learn" },
 ]
 export = [
     { name = "matplotlib" },
@@ -1052,6 +1054,7 @@ requires-dist = [
     { name = "hmmlearn", marker = "extra == 'ml'", specifier = ">=0.3" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "imbalanced-learn", marker = "extra == 'ml'", specifier = ">=0.12" },
+    { name = "joblib", marker = "extra == 'desktop'", specifier = ">=1.4" },
     { name = "lightgbm", marker = "extra == 'ml'", specifier = ">=4.4" },
     { name = "lxml", specifier = ">=5.0" },
     { name = "matplotlib", marker = "extra == 'export'", specifier = ">=3.9" },
@@ -1069,6 +1072,7 @@ requires-dist = [
     { name = "reportlab", marker = "extra == 'export'", specifier = ">=4.2" },
     { name = "rich", specifier = ">=13.7" },
     { name = "ruptures", marker = "extra == 'ml'", specifier = ">=1.1" },
+    { name = "scikit-learn", marker = "extra == 'desktop'", specifier = ">=1.5" },
     { name = "scikit-learn", marker = "extra == 'ml'", specifier = ">=1.5" },
     { name = "scipy", specifier = ">=1.13" },
     { name = "shap", marker = "extra == 'ml'", specifier = ">=0.46" },

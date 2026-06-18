@@ -54,8 +54,9 @@ bash backend/scripts/build_sidecar.sh
 pnpm tauri build
 ```
 
-`build_sidecar.sh` runs `uv sync --extra desktop --extra api` (NOT ml/export — the
-app's API surface never imports the ML stack) then `pyinstaller
+`build_sidecar.sh` runs `uv sync --extra desktop --extra api` (NOT full
+ml/export — the desktop API only needs the lean sklearn/joblib MetaFilter path)
+then `pyinstaller
 intraday-engine.spec`, and copies the onedir folder to `src-tauri/binaries/engine/`.
 Verified end-to-end: the bundled engine handshakes from inside the built `.app`
 in ~3 s (`Resources/engine/intraday-engine` → `/healthz` 200).
@@ -70,20 +71,21 @@ the spec's `target_arch="arm64"` is Apple-Silicon-specific. On Intel, set
 
 Measured: the **onedir engine is ~564 MB** on disk (uncompressed) and the bundled
 **`.app` is ~664 MB**. The bulk is the data stack (polars, duckdb, pyarrow,
-pandas, scipy) + the Python runtime — the heavy ML libs (lightgbm/xgboost/shap/
-tsfresh/sklearn) are intentionally NOT bundled (the app never imports them; they
-live in the CLI `learn` path). The spec also excludes GUI backends
+pandas, scipy) + the Python runtime. The desktop bundle includes sklearn/joblib
+for the MetaFilter and `/api/learn`; heavier research libraries
+(lightgbm/xgboost/shap/tsfresh/etc.) remain CLI-only. The spec also excludes GUI backends
 (tkinter/Qt/IPython). Onedir trades disk size for startup speed (see pitfall #4).
 
 ---
 
 ## Known PyInstaller pitfalls (encoded in the spec)
 
-1. **(N/A — api-only build.)** Earlier builds bundled lightgbm/xgboost, which need
-   an OpenMP runtime (`libomp.dylib`) not shipped in the wheels. The trimmed
-   api-only sidecar drops those libs, so no libomp is needed. If you ever add the
-   ML stack back to the sidecar, restore the libomp bundling in the spec
-   (`brew install libomp`) or it dies with `Library not loaded: @rpath/libomp.dylib`.
+1. Earlier full-ML builds bundled lightgbm/xgboost, which need an OpenMP runtime
+   (`libomp.dylib`) not shipped in the wheels. The trimmed desktop sidecar keeps
+   only sklearn/joblib for `/api/learn`, so the bundled-engine smoke test is the
+   source of truth for dylib health. If you add LightGBM/XGBoost back to the
+   sidecar, restore the libomp bundling in the spec (`brew install libomp`) or it
+   dies with `Library not loaded: @rpath/libomp.dylib`.
 
 2. **Hidden imports the static analyzer can't see.** polars, duckdb, pyarrow,
    pandas, scipy, and the uvicorn/fastapi web stack load submodules / data /

@@ -51,7 +51,7 @@ from intradayx.domain.capabilities import Capability, CapabilityError, ProviderC
 from intradayx.domain.catalysts import CatalystEvent
 from intradayx.features.pipeline import build_features
 from intradayx.signals.engine import SignalEngine
-from intradayx.signals.meta_filter import MetaFilter
+from intradayx.signals.meta_filter import FitResult, MetaFilter
 
 logger = logging.getLogger(__name__)
 
@@ -100,6 +100,27 @@ def _model_save_path(symbol: str, scanner: str) -> Path:
     models_dir = Path(settings_store.app_data_dir()) / "models"
     models_dir.mkdir(parents=True, exist_ok=True)
     return models_dir / f"{symbol.upper()}_{scanner}.joblib"
+
+
+def _meta_filter_save_rejection_reason(result: FitResult) -> str:
+    """Return why a trained meta-filter is not production-worthy enough to save."""
+    if result.insufficient:
+        return result.reason
+    if result.n_samples < 30:
+        return (
+            "model not saved: need at least 30 labeled signals for a durable filter "
+            f"(got {result.n_samples})"
+        )
+    if result.cv_roc_auc < 0.52:
+        return (
+            "model not saved: validation ROC-AUC "
+            f"{result.cv_roc_auc:.3f} is below the 0.520 floor"
+        )
+    if result.cv_precision <= 0.0 and result.cv_recall <= 0.0:
+        return "model not saved: validation precision and recall are both zero"
+    if not any(score > 1e-9 for _, score in result.feature_importance):
+        return "model not saved: no positive feature importance was detected"
+    return ""
 
 
 def _epoch(ts: datetime) -> int:
@@ -584,8 +605,9 @@ def train_meta_filter_dto(
         max_hold_bars=max_hold,
         min_samples=min_samples,
     )
+    rejection_reason = _meta_filter_save_rejection_reason(result)
     save_path: Path | None = None
-    if not result.insufficient and mf.is_fitted:
+    if not rejection_reason and mf.is_fitted:
         save_path = _model_save_path(symbol, scanner)
         mf.save(save_path)
     return LearnResponse(
@@ -601,6 +623,6 @@ def train_meta_filter_dto(
         cv_recall=result.cv_recall,
         cv_roc_auc=result.cv_roc_auc,
         insufficient=result.insufficient,
-        reason=result.reason,
+        reason=rejection_reason,
         feature_importance=result.feature_importance[:12],
     )
