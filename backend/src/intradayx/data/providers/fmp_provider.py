@@ -13,7 +13,7 @@ the data provenance remains FMP end-to-end.
 from __future__ import annotations
 
 import os
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from functools import partial
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -30,6 +30,7 @@ from intradayx.data.provider import (
 from intradayx.data.resilience import TransientError, with_retries
 from intradayx.domain.bars import BAR_SCHEMA, BarSet, Timeframe
 from intradayx.domain.capabilities import Capability, ProviderCapabilities
+from intradayx.domain.catalysts import CatalystEvent, CatalystKind, parse_fmp_datetime
 
 _BASE = "https://financialmodelingprep.com/stable"
 _NY = ZoneInfo("America/New_York")
@@ -68,6 +69,33 @@ TECHNICAL_INDICATORS: tuple[str, ...] = (
     "adx",
 )
 
+_EVENT_LOOKAROUND = timedelta(days=2)
+_CATALYST_KEYWORDS: tuple[str, ...] = (
+    "earnings",
+    "guidance",
+    "forecast",
+    "outlook",
+    "raises",
+    "cuts",
+    "cut",
+    "upgrade",
+    "downgrade",
+    "fda",
+    "approval",
+    "trial",
+    "merger",
+    "acquisition",
+    "lawsuit",
+    "sec",
+    "investigation",
+    "offering",
+    "buyback",
+    "dividend",
+    "contract",
+    "partnership",
+    "layoff",
+)
+
 
 def _empty_barset(ticker: str, timeframe: Timeframe) -> BarSet:
     return BarSet(ticker, timeframe, pl.DataFrame(schema=BAR_SCHEMA))
@@ -92,6 +120,10 @@ class FMPProvider(DataProvider):
                     Capability.INTRADAY_BARS_5M,
                     Capability.EXTENDED_HISTORY_INTRADAY,
                     Capability.LIVE_STREAM,
+                    Capability.EARNINGS_CALENDAR,
+                    Capability.STOCK_NEWS,
+                    Capability.PRESS_RELEASES,
+                    Capability.ANALYST_GRADES,
                 }
             ),
             max_intraday_lookback={
@@ -149,6 +181,238 @@ class FMPProvider(DataProvider):
             return body
 
         return with_retries(partial(_fetch), retryable=retryable)
+
+    @staticmethod
+    def _rows(body: Any) -> list[dict[str, Any]]:
+        if isinstance(body, list):
+            return [r for r in body if isinstance(r, dict)]
+        if isinstance(body, dict):
+            for key in ("data", "historical", "news", "grades", "items"):
+                rows = body.get(key)
+                if isinstance(rows, list):
+                    return [r for r in rows if isinstance(r, dict)]
+        return []
+
+    def _optional_rows(self, path: str, params: dict[str, str]) -> list[dict[str, Any]]:
+        try:
+            return self._rows(self._request(path, params))
+        except (DataError, TransientError):
+            return []
+
+    @staticmethod
+    def _to_utc(value: datetime) -> datetime:
+        if value.tzinfo is None:
+            return value.replace(tzinfo=UTC)
+        return value.astimezone(UTC)
+
+    @staticmethod
+    def _date_param(value: datetime) -> str:
+        return value.astimezone(_NY).strftime("%Y-%m-%d")
+
+    @staticmethod
+    def _text(row: dict[str, Any], *keys: str) -> str:
+        for key in keys:
+            value = row.get(key)
+            if value is not None and str(value).strip():
+                return str(value).strip()
+        return ""
+
+    @staticmethod
+    def _number(value: Any) -> float | None:
+        if value is None or value == "":
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _score_headline(row: dict[str, Any], *, base: float) -> float:
+        title = FMPProvider._text(row, "title", "headline")
+        body = FMPProvider._text(row, "text", "summary", "description", "content")
+        haystack = f"{title} {body}".lower()
+        hits = sum(1 for keyword in _CATALYST_KEYWORDS if keyword in haystack)
+        return min(base + hits * 0.07, 0.94)
+
+    @staticmethod
+    def _earnings_timestamp(row: dict[str, Any]) -> datetime | None:
+        raw_date = row.get("date") or row.get("fiscalDateEnding")
+        ts = parse_fmp_datetime(raw_date)
+        if ts is None:
+            return None
+        when = str(row.get("time") or row.get("epsTime") or "").lower()
+        if isinstance(raw_date, date) and not isinstance(raw_date, datetime):
+            report_date = raw_date
+        elif isinstance(raw_date, str) and len(raw_date.strip()) == 10:
+            report_date = date.fromisoformat(raw_date.strip())
+        else:
+            report_date = ts.astimezone(_NY).date()
+        if "bmo" in when or "before" in when or "morning" in when:
+            return datetime.combine(report_date, time(9, 30), tzinfo=_NY).astimezone(UTC)
+        if "amc" in when or "after" in when or "evening" in when:
+            return datetime.combine(report_date, time(16, 5), tzinfo=_NY).astimezone(UTC)
+        return datetime.combine(report_date, time(12, 0), tzinfo=_NY).astimezone(UTC)
+
+    @staticmethod
+    def _within_event_window(ts: datetime, start: datetime, end: datetime) -> bool:
+        return start - _EVENT_LOOKAROUND <= ts <= end + _EVENT_LOOKAROUND
+
+    @staticmethod
+    def _earnings_event(row: dict[str, Any]) -> CatalystEvent | None:
+        ts = FMPProvider._earnings_timestamp(row)
+        if ts is None:
+            return None
+        eps = FMPProvider._number(row.get("eps") or row.get("actualEarningResult"))
+        est = FMPProvider._number(row.get("epsEstimated") or row.get("estimatedEarning"))
+        evidence: dict[str, float | str] = {}
+        score = 0.72
+        title = "Earnings report"
+        if eps is not None:
+            evidence["eps"] = eps
+        if est is not None:
+            evidence["eps_estimated"] = est
+        if eps is not None and est not in (None, 0):
+            surprise_pct = (eps - est) / abs(est)
+            evidence["eps_surprise_pct"] = surprise_pct
+            score = min(0.92, 0.74 + min(abs(surprise_pct), 0.5) * 0.32)
+            title = f"Earnings report: EPS {eps:g} vs est. {est:g}"
+        revenue = FMPProvider._number(row.get("revenue"))
+        revenue_est = FMPProvider._number(row.get("revenueEstimated"))
+        if revenue is not None:
+            evidence["revenue"] = revenue
+        if revenue_est is not None:
+            evidence["revenue_estimated"] = revenue_est
+        return CatalystEvent.create(
+            kind=CatalystKind.EARNINGS,
+            ts=ts,
+            title=title,
+            score=score,
+            evidence=evidence,
+        )
+
+    @staticmethod
+    def _news_event(row: dict[str, Any], kind: CatalystKind) -> CatalystEvent | None:
+        ts = parse_fmp_datetime(
+            row.get("publishedDate")
+            or row.get("publishedAt")
+            or row.get("date")
+            or row.get("createdAt")
+        )
+        title = FMPProvider._text(row, "title", "headline")
+        if ts is None or not title:
+            return None
+        return CatalystEvent.create(
+            kind=kind,
+            ts=ts,
+            title=title,
+            score=FMPProvider._score_headline(
+                row, base=0.66 if kind is CatalystKind.PRESS_RELEASE else 0.56
+            ),
+            url=FMPProvider._text(row, "url", "link") or None,
+            evidence={
+                "publisher": FMPProvider._text(row, "site", "publisher", "source") or "fmp",
+            },
+        )
+
+    @staticmethod
+    def _grade_event(row: dict[str, Any]) -> CatalystEvent | None:
+        ts = parse_fmp_datetime(row.get("date") or row.get("publishedDate"))
+        if ts is None:
+            return None
+        firm = FMPProvider._text(row, "gradingCompany", "analystCompany", "company")
+        action = FMPProvider._text(row, "action", "actionCompany").lower()
+        previous = FMPProvider._text(row, "previousGrade", "previousRating")
+        current = FMPProvider._text(row, "newGrade", "newRating", "grade")
+        label_action = action.replace("_", " ").strip() or "rating action"
+        title = f"{firm}: {label_action}".strip(": ")
+        if previous or current:
+            title = f"{title} {previous or '-'} -> {current or '-'}"
+        if "downgrade" in action or "upgrade" in action:
+            score = 0.82
+        elif "initiated" in action or "reiterated" in action:
+            score = 0.66
+        else:
+            score = 0.58
+        return CatalystEvent.create(
+            kind=CatalystKind.ANALYST_GRADE,
+            ts=ts,
+            title=title,
+            score=score,
+            evidence={
+                "action": label_action,
+                "previous_grade": previous,
+                "new_grade": current,
+                "firm": firm,
+            },
+        )
+
+    def earnings_dates(self, ticker: str) -> list[date]:
+        symbol = ticker.upper()
+        now = datetime.now(tz=UTC)
+        rows = self._optional_rows(
+            "earnings-calendar",
+            {
+                "symbol": symbol,
+                "from": self._date_param(now - timedelta(days=730)),
+                "to": self._date_param(now + timedelta(days=365)),
+            },
+        )
+        dates = {
+            ts.date()
+            for ts in (self._earnings_timestamp(row) for row in rows)
+            if ts is not None
+        }
+        return sorted(dates)
+
+    def catalyst_events(
+        self, ticker: str, start: datetime, end: datetime
+    ) -> list[CatalystEvent]:
+        symbol = ticker.upper()
+        start_utc = self._to_utc(start)
+        end_utc = self._to_utc(end)
+        query_start = start_utc - _EVENT_LOOKAROUND
+        query_end = end_utc + _EVENT_LOOKAROUND
+        params = {
+            "symbol": symbol,
+            "from": self._date_param(query_start),
+            "to": self._date_param(query_end),
+        }
+
+        events: list[CatalystEvent] = []
+        for row in self._optional_rows("earnings-calendar", params):
+            event = self._earnings_event(row)
+            if event is not None and self._within_event_window(event.ts, start_utc, end_utc):
+                events.append(event)
+
+        for row in self._optional_rows(
+            "news/stock", {"symbols": symbol, "page": "0", "limit": "100"}
+        ):
+            event = self._news_event(row, CatalystKind.NEWS)
+            if event is not None and self._within_event_window(event.ts, start_utc, end_utc):
+                events.append(event)
+
+        for row in self._optional_rows(
+            "news/press-releases", {"symbols": symbol, "page": "0", "limit": "50"}
+        ):
+            event = self._news_event(row, CatalystKind.PRESS_RELEASE)
+            if event is not None and self._within_event_window(event.ts, start_utc, end_utc):
+                events.append(event)
+
+        for path in ("grades", "grades-historical"):
+            for row in self._optional_rows(path, {"symbol": symbol}):
+                event = self._grade_event(row)
+                if event is not None and self._within_event_window(event.ts, start_utc, end_utc):
+                    events.append(event)
+
+        seen: set[tuple[str, datetime, str]] = set()
+        unique: list[CatalystEvent] = []
+        for event in sorted(events, key=lambda e: (e.ts, e.kind.value, e.title)):
+            key = (event.kind.value, event.ts, event.title)
+            if key in seen:
+                continue
+            seen.add(key)
+            unique.append(event)
+        return unique
 
     def _fetch_intraday(
         self, ticker: str, start: datetime, end: datetime, timeframe: Timeframe

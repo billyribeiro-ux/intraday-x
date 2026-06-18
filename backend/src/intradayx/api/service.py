@@ -19,6 +19,7 @@ from intradayx.api.schemas import (
     BacktestResponse,
     BarsResponse,
     CandleDTO,
+    CatalystEventDTO,
     EquityPointDTO,
     LevelsDTO,
     LinePointDTO,
@@ -33,12 +34,17 @@ from intradayx.api.schemas import (
     VolumePointDTO,
     to_signal_dto,
 )
+from intradayx.attribution.catalysts import (
+    catalyst_events_from_earnings_dates,
+    enrich_with_catalysts,
+)
 from intradayx.attribution.move_explainer import MoveExplanation, explain_latest_move
 from intradayx.backtest.runner import run_backtest
 from intradayx.data.factory import default_provider
-from intradayx.data.provider import DataProvider
+from intradayx.data.provider import DataError, DataProvider
 from intradayx.domain.bars import Timeframe
-from intradayx.domain.capabilities import Capability, ProviderCapabilities
+from intradayx.domain.capabilities import Capability, CapabilityError, ProviderCapabilities
+from intradayx.domain.catalysts import CatalystEvent
 from intradayx.features.pipeline import build_features
 from intradayx.signals.engine import SignalEngine
 from intradayx.signals.meta_filter import MetaFilter
@@ -107,6 +113,51 @@ def _move_explanation_dto(move: MoveExplanation | None) -> MoveExplanationDTO | 
     )
 
 
+def _catalyst_event_dto(event: CatalystEvent) -> CatalystEventDTO:
+    return CatalystEventDTO(
+        kind=event.kind.value,
+        ts=event.ts.isoformat(),
+        title=event.title,
+        source=event.source,
+        score=event.score,
+        url=event.url,
+        evidence=event.evidence,
+    )
+
+
+def _fetch_catalysts(
+    provider: DataProvider, symbol: str, start: datetime, end: datetime
+) -> list[CatalystEvent]:
+    """Best-effort FMP catalyst fetch; never lets optional evidence break bars."""
+    try:
+        return provider.catalyst_events(symbol.upper(), start, end)
+    except CapabilityError:
+        pass
+    except DataError:
+        logger.info("failed to fetch catalysts for %s", symbol.upper(), exc_info=True)
+        return []
+
+    if provider.capabilities().supports(Capability.EARNINGS_CALENDAR):
+        try:
+            return catalyst_events_from_earnings_dates(provider.earnings_dates(symbol.upper()))
+        except (CapabilityError, DataError):
+            logger.info("failed to fetch earnings catalysts for %s", symbol.upper(), exc_info=True)
+    return []
+
+
+def _rank_chart_catalysts(
+    events: list[CatalystEvent], anchor: datetime, limit: int = 8
+) -> list[CatalystEvent]:
+    anchor_utc = anchor.astimezone(UTC) if anchor.tzinfo else anchor.replace(tzinfo=UTC)
+
+    def relevance(event: CatalystEvent) -> tuple[float, datetime]:
+        hours = abs((anchor_utc - event.ts.astimezone(UTC)).total_seconds()) / 3600
+        proximity = max(0.15, 1.0 - min(hours / 72.0, 1.0))
+        return event.score * proximity, event.ts
+
+    return sorted(events, key=relevance, reverse=True)[:limit]
+
+
 def _clamped_start(end: datetime, days: int, caps: ProviderCapabilities, tf: Timeframe) -> datetime:
     """Return the start time, clamped to what the active provider can serve.
 
@@ -135,10 +186,7 @@ def run_scan(symbol: str, timeframe: str, days: int, scanner: str = "reversal") 
 
     meta_filter = _meta_filter_for(symbol, scanner)
     signals = SignalEngine(make_strategy(scanner), meta_filter=meta_filter).scan(bars, caps)
-    if caps.supports(Capability.EARNINGS_CALENDAR):
-        from intradayx.attribution.catalysts import enrich_with_earnings
-
-        signals = enrich_with_earnings(signals, provider.earnings_dates(symbol.upper()))
+    signals = enrich_with_catalysts(signals, _fetch_catalysts(provider, symbol, start, end))
     return ScanResponse(
         symbol=symbol.upper(),
         timeframe=tf.value,
@@ -170,8 +218,10 @@ def build_chart(symbol: str, timeframe: str, days: int, scanner: str = "reversal
             levels=None,
             data_completeness=0.0,
             move_explanation=None,
+            catalysts=[],
         )
 
+    catalysts = _fetch_catalysts(provider, symbol, start, end)
     fs = build_features(bars, caps)
     df = fs.df.with_columns(
         ema20=pl.col("close").ewm_mean(span=20, adjust=False, min_samples=20),
@@ -238,6 +288,10 @@ def build_chart(symbol: str, timeframe: str, days: int, scanner: str = "reversal
         levels=levels,
         data_completeness=fs.data_completeness,
         move_explanation=_move_explanation_dto(explain_latest_move(df, fs.data_completeness)),
+        catalysts=[
+            _catalyst_event_dto(event)
+            for event in _rank_chart_catalysts(catalysts, df.tail(1).to_dicts()[0]["ts"])
+        ],
     )
 
 
