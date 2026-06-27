@@ -19,6 +19,7 @@ from intradayx.domain.capabilities import (
     SHORT_FULL,
     ProviderCapabilities,
 )
+from intradayx.domain.internals import InternalsSeries, InternalSymbol
 from intradayx.features.climax import add_climax
 from intradayx.features.gaps import add_gaps
 from intradayx.features.indicators import (
@@ -35,6 +36,7 @@ from intradayx.features.indicators import (
 from intradayx.features.pivots import add_pivots
 from intradayx.features.session import add_session_columns
 from intradayx.features.squeeze import add_squeeze_signature
+from intradayx.features.volatility import VOLATILITY_REGIME_FEATURES, add_volatility_regime
 from intradayx.features.volume_profile import add_volume_profile
 
 # Feature columns this pipeline produces (used to build the manifest).
@@ -133,11 +135,18 @@ class FeatureSet:
         )
 
 
-def build_features(bars: BarSet, caps: ProviderCapabilities) -> FeatureSet:
+def build_features(
+    bars: BarSet,
+    caps: ProviderCapabilities,
+    *,
+    internals: dict[InternalSymbol, InternalsSeries] | None = None,
+) -> FeatureSet:
     """Compute the full causal feature set for ``bars``.
 
     Order matters: session anchors VWAP/RVOL/profile; ATR precedes the
-    gap/climax features that consume it.
+    gap/climax features that consume it. ``internals`` (the VIX family) is
+    optional context; when supplied and the provider declares volatility
+    internals, volatility-regime columns are added for the meta-filter.
     """
     df = bars.df
     df = add_session_columns(df)
@@ -157,9 +166,19 @@ def build_features(bars: BarSet, caps: ProviderCapabilities) -> FeatureSet:
     df = add_climax(df)
     df = add_squeeze_signature(df)  # needs range_atr + close_position from climax
 
-    # Internals/options/short features would be added here, gated on
-    # caps.supported. Dormant under price/volume-only vendors by design.
-    manifest = frozenset(c for c in PRICE_VOLUME_FEATURES if c in df.columns)
+    # Internals features, gated on caps.supported. Dormant under price/volume-only
+    # vendors by design. Volatility regime (VIX family) is the first wired.
+    if internals and caps.supported & INTERNALS_VOLATILITY:
+        df = add_volatility_regime(
+            df,
+            vix=internals.get(InternalSymbol.VIX),
+            vix9d=internals.get(InternalSymbol.VIX9D),
+            vix3m=internals.get(InternalSymbol.VIX3M),
+        )
+
+    manifest = frozenset(
+        c for c in (*PRICE_VOLUME_FEATURES, *VOLATILITY_REGIME_FEATURES) if c in df.columns
+    )
     return FeatureSet(
         symbol=bars.symbol,
         timeframe=bars.timeframe,

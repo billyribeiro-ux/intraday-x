@@ -16,6 +16,7 @@ from datetime import datetime, timedelta
 
 from intradayx.domain.bars import BarSet
 from intradayx.domain.capabilities import ProviderCapabilities
+from intradayx.domain.internals import InternalsSeries, InternalSymbol
 from intradayx.domain.signals import Signal
 from intradayx.signals.engine import SignalEngine
 
@@ -37,9 +38,14 @@ class LiveMonitor:
         # a signal older than the poll lookback can never re-appear anyway.
         self._seen: dict[str, datetime] = {}
 
-    def process(self, bars: BarSet) -> list[Signal]:
+    def process(
+        self,
+        bars: BarSet,
+        *,
+        internals: dict[InternalSymbol, InternalsSeries] | None = None,
+    ) -> list[Signal]:
         """Evaluate the latest bars and return only signals not seen before."""
-        signals = self.engine.scan(bars, self.caps)
+        signals = self.engine.scan(bars, self.caps, internals=internals)
         if signals:  # prune ids older than `retention` before the newest signal
             cutoff = max(s.ts for s in signals) - self._retention
             self._seen = {sid: ts for sid, ts in self._seen.items() if ts >= cutoff}

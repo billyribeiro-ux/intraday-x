@@ -22,6 +22,7 @@ from intradayx.api.service import get_engine, get_provider
 from intradayx.data.provider import DataError
 from intradayx.domain.bars import Timeframe
 from intradayx.domain.signals import Signal
+from intradayx.features.volatility import fetch_volatility_internals
 from intradayx.live.monitor import LiveMonitor
 
 PROTOCOL_VERSION = 1
@@ -152,7 +153,8 @@ class SignalPoller:
         end = datetime.now(tz=UTC)
         start = end - timedelta(days=self.recent_days)
         bars = provider.bars(symbol, start, end, self.timeframe)
-        return self._monitors[symbol].process(bars)
+        vol = fetch_volatility_internals(provider, start, end, self.timeframe)
+        return self._monitors[symbol].process(bars, internals=vol)
 
     async def poll(self) -> None:
         if self.manager.count == 0:

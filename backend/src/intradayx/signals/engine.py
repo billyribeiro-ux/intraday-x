@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 
 from intradayx.domain.bars import BarSet
 from intradayx.domain.capabilities import ProviderCapabilities
+from intradayx.domain.internals import InternalsSeries, InternalSymbol
 from intradayx.domain.signals import Side, Signal, SignalKind
 from intradayx.features.pipeline import FeatureSet, build_features
 from intradayx.signals.reversal import ReversalStrategy
@@ -106,8 +107,18 @@ class SignalEngine:
             ]
         return signals
 
-    def scan(self, bars: BarSet, caps: ProviderCapabilities) -> list[Signal]:
-        """Convenience: build features then evaluate. Used by the CLI and live poller."""
+    def scan(
+        self,
+        bars: BarSet,
+        caps: ProviderCapabilities,
+        *,
+        internals: dict[InternalSymbol, InternalsSeries] | None = None,
+    ) -> list[Signal]:
+        """Convenience: build features then evaluate. Used by the CLI and live poller.
+
+        ``internals`` (the VIX family) is optional volatility-regime context; when
+        omitted the engine behaves exactly as before (price/volume only).
+        """
         if bars.is_empty():
             return []
-        return self.evaluate(build_features(bars, caps))
+        return self.evaluate(build_features(bars, caps, internals=internals))
