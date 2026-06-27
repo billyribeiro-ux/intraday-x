@@ -45,11 +45,10 @@
 				<th>Date</th>
 				<th>Ticker</th>
 				<th>Kind</th>
-				<th>Side</th>
-				<th class="num">Entry</th>
-					<th class="num">Stop</th>
-					<th class="num">Target</th>
-					<th class="num">Conf</th>
+				<th>Signal</th>
+				<th class="num">Stop</th>
+				<th class="num">Target</th>
+				<th class="num">Conf</th>
 				<th class="num">Quality</th>
 				<th class="num">ML</th>
 				<th>Time (ET)</th>
@@ -58,7 +57,7 @@
 		</thead>
 		<tbody>
 			{#if signals.length === 0}
-				<tr class="empty"><td colspan="12">No signals yet.</td></tr>
+				<tr class="empty"><td colspan="11">No signals yet.</td></tr>
 			{:else}
 				{#each signals as s (s.signal_id)}
 					{@const dir = uiDirection(s.side)}
@@ -66,15 +65,15 @@
 						<td class="mono">{fmtDate(s.ts)}</td>
 						<td class="mono">{s.symbol}</td>
 						<td>{s.kind.replace('reversal_', '').replace('scalp_', '')}</td>
+						<!-- The actionable call: BUY/SELL @ entry price, always visible. -->
 						<td class="side {dir}">
 							{#if dir === 'buy'}
 								<TrendUpIcon size={15} weight="bold" />
 							{:else}
 								<TrendDownIcon size={15} weight="bold" />
 							{/if}
-							{s.side}
+							<span class="action">{s.side} @ <span class="price">{fmtPrice(s.entry)}</span></span>
 						</td>
-						<td class="num price">{fmtPrice(s.entry)}</td>
 						<td class="num">{fmtPrice(s.stop)}</td>
 						<td class="num">{fmtPrice(s.targets?.[0])}</td>
 						<td class="num">{s.confidence.toFixed(2)}</td>
@@ -97,7 +96,7 @@
 	}
 	table {
 		width: 100%;
-		min-width: 920px;
+		min-width: 860px;
 		border-collapse: collapse;
 		font-size: 0.78rem;
 	}
@@ -127,11 +126,6 @@
 		text-align: right;
 		font-variant-numeric: tabular-nums;
 	}
-	/* Entry is the actionable number — buy/sell AT this price — so make it pop. */
-	.price {
-		font-weight: 700;
-		color: var(--text);
-	}
 	.mono {
 		font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 	}
@@ -146,6 +140,14 @@
 	}
 	.side.sell {
 		color: var(--sell);
+	}
+	/* The entry price is the actionable number — buy/sell AT this price. */
+	.action {
+		white-space: nowrap;
+	}
+	.price {
+		font-weight: 700;
+		font-variant-numeric: tabular-nums;
 	}
 	.why {
 		color: var(--muted);
