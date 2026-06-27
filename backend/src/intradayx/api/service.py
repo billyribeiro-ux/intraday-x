@@ -50,6 +50,7 @@ from intradayx.domain.bars import Timeframe
 from intradayx.domain.capabilities import Capability, CapabilityError, ProviderCapabilities
 from intradayx.domain.catalysts import CatalystEvent
 from intradayx.features.pipeline import build_features
+from intradayx.features.volatility import fetch_volatility_internals
 from intradayx.signals.engine import SignalEngine
 from intradayx.signals.meta_filter import FitResult, MetaFilter
 
@@ -346,9 +347,12 @@ def run_scan(symbol: str, timeframe: str, days: int, scanner: str = "reversal") 
     caps = provider.capabilities()
     start = _clamped_start(end, days, caps, tf)
     bars = provider.bars(symbol.upper(), start, end, tf)
+    vol = fetch_volatility_internals(provider, start, end, tf)
 
     meta_filter = _meta_filter_for(symbol, scanner)
-    signals = SignalEngine(make_strategy(scanner), meta_filter=meta_filter).scan(bars, caps)
+    signals = SignalEngine(make_strategy(scanner), meta_filter=meta_filter).scan(
+        bars, caps, internals=vol
+    )
     signals = enrich_with_catalysts(signals, _fetch_catalysts(provider, symbol, start, end))
     return ScanResponse(
         symbol=symbol.upper(),
@@ -385,7 +389,7 @@ def build_chart(symbol: str, timeframe: str, days: int, scanner: str = "reversal
         )
 
     catalysts = _fetch_catalysts(provider, symbol, start, end)
-    fs = build_features(bars, caps)
+    fs = build_features(bars, caps, internals=fetch_volatility_internals(provider, start, end, tf))
     df = fs.df.with_columns(
         ema20=pl.col("close").ewm_mean(span=20, adjust=False, min_samples=20),
         ema50=pl.col("close").ewm_mean(span=50, adjust=False, min_samples=50),
@@ -501,7 +505,7 @@ def run_backtest_dto(
             catalysts=[],
         )
 
-    fs = build_features(bars, caps)
+    fs = build_features(bars, caps, internals=fetch_volatility_internals(provider, start, end, tf))
     catalysts = _fetch_catalysts(provider, symbol, start, end)
     raw_signals = SignalEngine(make_strategy(scanner)).evaluate(fs)
     raw_signals = enrich_with_catalysts(raw_signals, catalysts)
@@ -598,7 +602,8 @@ def train_meta_filter_dto(
             reason="no bars returned",
         )
 
-    signals = SignalEngine(make_strategy(scanner)).scan(bars, caps)
+    vol = fetch_volatility_internals(provider, start, end, tf)
+    signals = SignalEngine(make_strategy(scanner)).scan(bars, caps, internals=vol)
     mf, result = train_meta_filter(
         signals,
         bars,

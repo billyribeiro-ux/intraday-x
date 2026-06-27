@@ -71,7 +71,7 @@ class _StubEngine(SignalEngine):
         super().__init__()
         self._signals = signals
 
-    def scan(self, bars: BarSet, caps: ProviderCapabilities) -> list[Signal]:
+    def scan(self, bars: BarSet, caps: ProviderCapabilities, **_kwargs: object) -> list[Signal]:
         return list(self._signals)
 
 
