@@ -368,32 +368,52 @@ def tune(
         "data/meta_filters", "--out", help="Directory to write the fitted model"
     ),
 ) -> None:
-    """Self-learn a meta-filter for the scanner on TICKER and save it for live use."""
+    """Self-learn a meta-filter on TICKER(S) and save it. TICKER may be a comma-
+    separated basket (e.g. AAPL,MSFT,NVDA) — signals are pooled across symbols so
+    the learned layer clears its sample floor (one symbol rarely does)."""
     from pathlib import Path
 
     import joblib
 
-    from intradayx.signals.meta_filter import train_meta_filter
+    from intradayx.domain.signals import Signal
+    from intradayx.features.volatility import fetch_volatility_internals
+    from intradayx.signals.meta_filter import train_meta_filter_multi
     from intradayx.signals.strategy import make_strategy
 
     if scanner not in ("reversal", "scalping"):
         raise typer.BadParameter("scanner must be 'reversal' or 'scalping'")
 
+    tickers = [t.strip().upper() for t in ticker.split(",") if t.strip()]
     tf = Timeframe(timeframe)
     end = datetime.now(tz=UTC)
+    start = end - timedelta(days=days)
     provider = default_provider()
-    bars = provider.bars(ticker.upper(), end - timedelta(days=days), end, tf)
-    if bars.is_empty():
-        console.print(f"[yellow]No bars for {ticker.upper()}.[/]")
+    caps = provider.capabilities()
+    engine = SignalEngine(make_strategy(scanner))
+
+    samples: list[tuple[list[Signal], object]] = []
+    total_bars = 0
+    for sym in tickers:
+        bars = provider.bars(sym, start, end, tf)
+        if bars.is_empty():
+            console.print(f"[yellow]No bars for {sym}; skipping.[/]")
+            continue
+        total_bars += len(bars)
+        vol = fetch_volatility_internals(provider, start, end, tf)
+        signals = engine.scan(bars, caps, internals=vol)
+        samples.append((signals, bars))
+
+    if not samples:
+        console.print("[yellow]No bars for any requested ticker.[/]")
         raise typer.Exit(code=0)
 
+    label = tickers[0] if len(tickers) == 1 else f"{len(tickers)} symbols"
     console.print(
-        f"\n[bold]{ticker.upper()}[/] {tf.value} {scanner} — training meta-filter on "
-        f"{len(bars)} bars..."
+        f"\n[bold]{label}[/] {tf.value} {scanner} — training meta-filter on "
+        f"{total_bars} bars across {len(samples)} symbol(s)..."
     )
-    signals = SignalEngine(make_strategy(scanner)).scan(bars, provider.capabilities())
-    mf, result = train_meta_filter(
-        signals, bars, max_hold_bars=max_hold, min_samples=50
+    mf, result = train_meta_filter_multi(
+        samples, max_hold_bars=max_hold, min_samples=50
     )
 
     if result.insufficient:
@@ -418,7 +438,8 @@ def tune(
 
     out_path = Path(out_dir)
     out_path.mkdir(parents=True, exist_ok=True)
-    model_file = out_path / f"{ticker.upper()}_{scanner}.joblib"
+    model_name = tickers[0] if len(tickers) == 1 else "universe"
+    model_file = out_path / f"{model_name}_{scanner}.joblib"
     joblib.dump(mf, model_file)
     console.print(
         f"Saved meta-filter → [green]{model_file}[/]\n"
