@@ -29,12 +29,24 @@ from intradayx.data.provider import (
 )
 from intradayx.data.resilience import TransientError, with_retries
 from intradayx.domain.bars import BAR_SCHEMA, BarSet, Timeframe
-from intradayx.domain.capabilities import Capability, ProviderCapabilities
+from intradayx.domain.capabilities import Capability, CapabilityError, ProviderCapabilities
 from intradayx.domain.catalysts import CatalystEvent, CatalystKind, parse_fmp_datetime
+from intradayx.domain.internals import INTERNALS_SCHEMA, InternalsSeries, InternalSymbol
 
 _BASE = "https://financialmodelingprep.com/stable"
 _NY = ZoneInfo("America/New_York")
 _FMP_MAX_LOOKBACK = timedelta(days=365 * 30)
+
+# Market internals FMP actually serves on the stable API (verified live): the
+# CBOE volatility family as index symbols. Breadth ($TICK/$TRIN/$ADD/$VOLD),
+# SKEW and put/call are NOT available, so we do not declare them — a missing
+# internal must lower data_completeness, never be fabricated.
+_INTERNAL_FMP_SYMBOL: dict[InternalSymbol, str] = {
+    InternalSymbol.VIX: "^VIX",
+    InternalSymbol.VIX9D: "^VIX9D",
+    InternalSymbol.VIX3M: "^VIX3M",
+    InternalSymbol.VVIX: "^VVIX",
+}
 
 _NATIVE_INTRADAY: dict[Timeframe, str] = {
     Timeframe.M1: "1min",
@@ -124,6 +136,9 @@ class FMPProvider(DataProvider):
                     Capability.STOCK_NEWS,
                     Capability.PRESS_RELEASES,
                     Capability.ANALYST_GRADES,
+                    # CBOE volatility family (verified live on the stable API).
+                    Capability.INTERNALS_VIX,
+                    Capability.INTERNALS_VIX_TERM,
                 }
             ),
             max_intraday_lookback={
@@ -500,6 +515,50 @@ class FMPProvider(DataProvider):
         if value is None or value == "":
             return None
         return float(value)
+
+    def internals(
+        self,
+        symbol: InternalSymbol,
+        start: datetime,
+        end: datetime,
+        timeframe: Timeframe,
+    ) -> InternalsSeries:
+        """Fetch a market-internals series. FMP serves the CBOE volatility family
+        (VIX / VIX9D / VIX3M / VVIX) as index symbols on the same bar endpoints;
+        breadth / SKEW / put-call are not available and raise CapabilityError so
+        the caller degrades honestly rather than receiving fabricated data."""
+        if not self._api_key:
+            raise MissingCredentialsError("FMP_API_KEY is required. Market data is FMP-only.")
+        fmp_symbol = _INTERNAL_FMP_SYMBOL.get(symbol)
+        if fmp_symbol is None:
+            cap = (
+                Capability.INTERNALS_VIX
+                if symbol is InternalSymbol.VIX
+                else Capability.INTERNALS_TICK
+            )
+            raise CapabilityError(self.name, cap)
+
+        if timeframe in _NATIVE_INTRADAY:
+            rows = self._fetch_intraday(fmp_symbol, start, end, timeframe)
+        elif timeframe == Timeframe.D1:
+            rows = self._fetch_eod(fmp_symbol, start, end)
+        else:
+            raise DataError(f"fmp internals: unsupported timeframe {timeframe.value}")
+        return self._rows_to_internals(symbol, timeframe, rows)
+
+    def _rows_to_internals(
+        self, symbol: InternalSymbol, timeframe: Timeframe, rows: list[dict[str, Any]]
+    ) -> InternalsSeries:
+        if not rows:
+            return InternalsSeries(symbol, timeframe, pl.DataFrame(schema=INTERNALS_SCHEMA))
+        frame = pl.DataFrame(
+            {
+                "ts": [self._parse_dt(str(r["date"])) for r in rows],
+                "value": [float(r["close"]) for r in rows],  # the index level
+                "source": [self.name] * len(rows),
+            }
+        )
+        return InternalsSeries(symbol, timeframe, frame)
 
     def _resample(self, source: BarSet, target_tf: Timeframe) -> BarSet:
         if source.is_empty():

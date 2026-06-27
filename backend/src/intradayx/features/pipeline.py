@@ -14,6 +14,7 @@ import polars as pl
 from intradayx.domain.bars import BarSet
 from intradayx.domain.capabilities import (
     INTERNALS_BREADTH,
+    INTERNALS_VOLATILITY,
     OPTIONS_FULL,
     SHORT_FULL,
     ProviderCapabilities,
@@ -80,15 +81,17 @@ PRICE_VOLUME_FEATURES: tuple[str, ...] = (
 def data_completeness_for(caps: ProviderCapabilities) -> float:
     """Share of the ideal data the active provider can supply (0–1).
 
-    Price/volume is always present (0.5). Internals add 0.3, options 0.1, shorts
-    0.1. Under a price/volume-only vendor (yfinance/Twelve Data, no internals/
-    options/shorts) this is 0.5 — and a
-    signal's confidence is scaled by it, so the UI/PDF can honestly say
-    "attribution limited by available data".
+    Price/volume is always present (0.5). Breadth internals add 0.3, volatility
+    internals (VIX family) 0.15, options 0.1, shorts 0.1. Under a
+    price/volume-only vendor (yfinance/Twelve Data) this is 0.5; with FMP's VIX
+    family it is 0.65 — and a signal's confidence is scaled by it, so the UI/PDF
+    can honestly say "attribution limited by available data".
     """
     score = 0.5
     if caps.supported & INTERNALS_BREADTH:
         score += 0.3
+    if caps.supported & INTERNALS_VOLATILITY:
+        score += 0.15
     if caps.supports_all(OPTIONS_FULL):
         score += 0.1
     if caps.supports_all(SHORT_FULL):
