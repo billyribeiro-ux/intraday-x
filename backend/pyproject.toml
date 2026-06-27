@@ -1,6 +1,6 @@
 [project]
 name = "intradayx"
-version = "0.0.2"
+version = "0.0.3"
 description = "Self-learning intraday day-trading scanner & backtester (reversal + scalping), with honest, capability-gated attribution."
 readme = "README.md"
 requires-python = ">=3.12"
