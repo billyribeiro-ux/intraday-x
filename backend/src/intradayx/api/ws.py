@@ -120,6 +120,12 @@ class SignalPoller:
         return True
 
     def status_data(self) -> dict[str, object]:
+        # Self-heal: if we have no usable provider yet, re-check now. The cached
+        # error is set once at construction, so a key added live (in-app Settings,
+        # which rebuilds the provider) must be re-evaluated here — otherwise the
+        # "FMP key needed" badge would stay stuck even though data already loads.
+        if self._provider_error is not None:
+            self._sync_provider_state()
         source = "fmp"
         configured = self._provider_error is None
         if configured:
@@ -173,6 +179,10 @@ class SignalPoller:
             await self.manager.broadcast(
                 _envelope("heartbeat", {"next_poll_in_s": self.interval_s})
             )
+            # Re-broadcast status each cycle so a provider-state change (e.g. a
+            # key added live in Settings) reaches already-connected clients — the
+            # status envelope is otherwise only sent once, on connect.
+            await self.manager.broadcast(_envelope("status", self.status_data()))
         finally:
             metrics.POLL_SECONDS.observe(time.perf_counter() - started)
 
