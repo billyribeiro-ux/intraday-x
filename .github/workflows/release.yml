@@ -75,6 +75,38 @@ jobs:
             echo "::warning::TAURI_SIGNING_PRIVATE_KEY not set — building an UNSIGNED app (no auto-update artifacts). Add the signing secrets to emit latest.json."
           fi
 
+      - name: Detect Apple code-signing
+        id: apple
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          # tauri-action runs `security import` on APPLE_CERTIFICATE; if the secret
+          # isn't a valid base64 .p12 (or the password is wrong) the whole bundle
+          # fails. Mirror that import into a throwaway keychain FIRST: if it works
+          # signing will work, otherwise fall back to an UNSIGNED (still installable)
+          # build instead of failing the release.
+          ok=false
+          if [ -n "$APPLE_CERTIFICATE" ] && \
+             printf '%s' "$APPLE_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/cert.p12" 2>/dev/null && \
+             [ -s "$RUNNER_TEMP/cert.p12" ]; then
+            kc="$RUNNER_TEMP/validate.keychain"
+            security create-keychain -p tmp-pass "$kc" 2>/dev/null || true
+            if security import "$RUNNER_TEMP/cert.p12" -k "$kc" -P "$APPLE_CERTIFICATE_PASSWORD" \
+                 -T /usr/bin/codesign >/dev/null 2>&1; then
+              ok=true
+            else
+              echo "::warning::APPLE_CERTIFICATE failed to import (not a valid base64 .p12, or wrong APPLE_CERTIFICATE_PASSWORD) — building an UNSIGNED app. Re-set the secret with 'base64 -i YourCert.p12' to get a signed/notarized build."
+            fi
+            security delete-keychain "$kc" 2>/dev/null || true
+          elif [ -n "$APPLE_CERTIFICATE" ]; then
+            echo "::warning::APPLE_CERTIFICATE is not valid base64 — building an UNSIGNED app."
+          else
+            echo "::notice::No APPLE_CERTIFICATE set — building an UNSIGNED app (open via right-click → Open)."
+          fi
+          rm -f "$RUNNER_TEMP/cert.p12"
+          echo "enabled=$ok" >> "$GITHUB_OUTPUT"
+
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
         with:
@@ -113,11 +145,14 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # Apple secrets are passed ONLY when the cert validated above; otherwise
+          # they're empty so tauri-action skips codesign/notarize and builds an
+          # installable unsigned app instead of failing the whole release.
+          APPLE_CERTIFICATE: ${{ steps.apple.outputs.enabled == 'true' && secrets.APPLE_CERTIFICATE || '' }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ steps.apple.outputs.enabled == 'true' && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
+          APPLE_ID: ${{ steps.apple.outputs.enabled == 'true' && secrets.APPLE_ID || '' }}
+          APPLE_PASSWORD: ${{ steps.apple.outputs.enabled == 'true' && secrets.APPLE_PASSWORD || '' }}
+          APPLE_TEAM_ID: ${{ steps.apple.outputs.enabled == 'true' && secrets.APPLE_TEAM_ID || '' }}
         with:
           # Repo root holds src-tauri/; tauri.conf.json's beforeBuildCommand
           # builds the frontend.
