@@ -87,8 +87,10 @@ jobs:
           # signing will work, otherwise fall back to an UNSIGNED (still installable)
           # build instead of failing the release.
           ok=false
+          # openssl base64 -d -A is portable (BSD `base64 --decode` is unreliable)
+          # and -A tolerates the single-line, newline-free secret form.
           if [ -n "$APPLE_CERTIFICATE" ] && \
-             printf '%s' "$APPLE_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/cert.p12" 2>/dev/null && \
+             printf '%s' "$APPLE_CERTIFICATE" | openssl base64 -d -A > "$RUNNER_TEMP/cert.p12" 2>/dev/null && \
              [ -s "$RUNNER_TEMP/cert.p12" ]; then
             kc="$RUNNER_TEMP/validate.keychain"
             security create-keychain -p tmp-pass "$kc" 2>/dev/null || true
@@ -139,33 +141,49 @@ jobs:
       - name: Build Python engine sidecar
         run: bash backend/scripts/build_sidecar.sh
 
-      - name: Build, sign, and publish desktop app + updater artifacts
+      # Two build paths. tauri-action attempts `security import` whenever
+      # APPLE_CERTIFICATE is merely PRESENT in the env (even empty), so the only
+      # reliable way to skip codesigning is to not define the Apple env vars at
+      # all. The signed path runs only when the cert validated above; otherwise
+      # the unsigned path runs with zero Apple env and still ships an installable
+      # (unsigned) .app/.dmg.
+      - name: Build + publish (signed + notarized)
+        if: steps.apple.outputs.enabled == 'true'
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          # Apple secrets are passed ONLY when the cert validated above; otherwise
-          # they're empty so tauri-action skips codesign/notarize and builds an
-          # installable unsigned app instead of failing the whole release.
-          APPLE_CERTIFICATE: ${{ steps.apple.outputs.enabled == 'true' && secrets.APPLE_CERTIFICATE || '' }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ steps.apple.outputs.enabled == 'true' && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
-          APPLE_ID: ${{ steps.apple.outputs.enabled == 'true' && secrets.APPLE_ID || '' }}
-          APPLE_PASSWORD: ${{ steps.apple.outputs.enabled == 'true' && secrets.APPLE_PASSWORD || '' }}
-          APPLE_TEAM_ID: ${{ steps.apple.outputs.enabled == 'true' && secrets.APPLE_TEAM_ID || '' }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
-          # Repo root holds src-tauri/; tauri.conf.json's beforeBuildCommand
-          # builds the frontend.
           projectPath: .
-          # Tag resolved above (tag push / dispatch input / app version on a
-          # release/* branch push) so the release always gets a real version tag.
           tagName: ${{ steps.ver.outputs.tag }}
           releaseName: 'intraday-x ${{ steps.ver.outputs.tag }}'
           releaseBody: 'See the assets below to download and install this version.'
           releaseDraft: true
           prerelease: false
-          # Emit the updater manifest (latest.json) + signatures only when signing
-          # is configured; otherwise the build still produces an installable
-          # (unsigned) .app/.dmg instead of failing.
+          includeUpdaterJson: ${{ steps.signing.outputs.enabled }}
+          args: --target aarch64-apple-darwin
+
+      - name: Build + publish (unsigned)
+        if: steps.apple.outputs.enabled != 'true'
+        uses: tauri-apps/tauri-action@v0
+        # NO Apple env vars here — their mere presence makes tauri-action try
+        # codesigning. Omitting them is what lets the unsigned build succeed.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: .
+          tagName: ${{ steps.ver.outputs.tag }}
+          releaseName: 'intraday-x ${{ steps.ver.outputs.tag }}'
+          releaseBody: 'See the assets below to download and install this version. (Unsigned build — on first open use right-click → Open.)'
+          releaseDraft: true
+          prerelease: false
           includeUpdaterJson: ${{ steps.signing.outputs.enabled }}
           args: --target aarch64-apple-darwin
