@@ -732,6 +732,9 @@ def pead(
     hold_days: int = typer.Option(20, help="Trading days to hold after the surprise"),
     years: int = typer.Option(4, help="Years of daily history to backtest over"),
     min_surprise: float = typer.Option(0.0, help="Minimum |EPS surprise| ($) to trade"),
+    min_sue: float = typer.Option(0.0, help="Minimum |SUE| (standardized surprise) to trade"),
+    cost_bps: float = typer.Option(5.0, help="Transaction cost per side, bps"),
+    borrow_bps: float = typer.Option(50.0, help="Annual short-borrow cost, bps"),
 ) -> None:
     """Post-Earnings-Announcement Drift: backtest the EPS-surprise edge and list
     currently-open trades. Long a positive surprise, short a negative one, hold
@@ -739,23 +742,28 @@ def pead(
     from datetime import timedelta
 
     from intradayx.signals.pead import build_pead_signals, open_signals, pead_stats
+    from intradayx.signals.pead_portfolio import pead_portfolio_backtest
 
     syms = [t.strip().upper() for t in tickers.split(",") if t.strip()]
     provider = default_provider()
     end = datetime.now(tz=UTC)
     start = end - timedelta(days=365 * years)
 
+    bars_by_symbol = {}
+    signals_by_symbol = {}
     all_sigs = []
     for sym in syms:
         bars = provider.bars(sym, start, end, Timeframe.D1)
         if bars.is_empty():
             continue
         surprises = provider.earnings_surprises(sym)
-        all_sigs.extend(
-            build_pead_signals(
-                sym, bars, surprises, hold_days=hold_days, min_abs_surprise=min_surprise
-            )
+        sigs = build_pead_signals(
+            sym, bars, surprises,
+            hold_days=hold_days, min_abs_surprise=min_surprise, min_abs_sue=min_sue,
         )
+        bars_by_symbol[sym] = bars
+        signals_by_symbol[sym] = sigs
+        all_sigs.extend(sigs)
 
     stats = pead_stats(all_sigs)
     console.print(
@@ -771,6 +779,22 @@ def pead(
     console.print(summary)
     verdict = "edge present (t>2)" if stats.t_stat > 2 else "not significant on this sample"
     console.print(f"Verdict: [bold]{verdict}[/]")
+
+    # Cost-aware long/short portfolio — the deployable, after-cost number.
+    pf = pead_portfolio_backtest(
+        bars_by_symbol, signals_by_symbol, cost_bps=cost_bps, borrow_bps_annual=borrow_bps
+    )
+    pt = Table(
+        title=f"Long/short portfolio (after {cost_bps:.0f}bps/side + {borrow_bps:.0f}bps borrow)",
+        show_header=False, box=None,
+    )
+    pt.add_row("Trading days", str(pf.n_days))
+    pt.add_row("Total return", f"{pf.total_return * 100:+.1f}%")
+    pt.add_row("Annualized return", f"{pf.ann_return * 100:+.1f}%")
+    pt.add_row("Annualized vol", f"{pf.ann_vol * 100:.1f}%")
+    pt.add_row("Sharpe (net)", f"[bold]{pf.sharpe:.2f}[/]")
+    pt.add_row("Max drawdown", f"{pf.max_drawdown * 100:.1f}%")
+    console.print(pt)
 
     live = open_signals(all_sigs)
     if live:
