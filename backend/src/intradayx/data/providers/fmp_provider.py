@@ -36,6 +36,9 @@ from intradayx.domain.internals import INTERNALS_SCHEMA, InternalsSeries, Intern
 _BASE = "https://financialmodelingprep.com/stable"
 _NY = ZoneInfo("America/New_York")
 _FMP_MAX_LOOKBACK = timedelta(days=365 * 30)
+# Intraday endpoint returns ~6 trading days/call; cap backward pagination so a
+# deep request can't run away (400 pages ≈ 6+ years of 5m history).
+_INTRADAY_MAX_PAGES = 400
 
 # Market internals FMP actually serves on the stable API (verified live): the
 # CBOE volatility family as index symbols. Breadth ($TICK/$TRIN/$ADD/$VOLD),
@@ -432,16 +435,37 @@ class FMPProvider(DataProvider):
     def _fetch_intraday(
         self, ticker: str, start: datetime, end: datetime, timeframe: Timeframe
     ) -> list[dict[str, Any]]:
+        # FMP's intraday endpoint returns only ~6 trading days (newest-first)
+        # ending at `to`, regardless of how far back `from` reaches. To cover a
+        # deep [start, end] we page BACKWARD: walk `to` to just before the oldest
+        # row of each page until we pass `start` (or a page comes back empty).
+        # BarSet/_rows_to_barset dedupes on ts, so overlap between pages is safe.
         interval = _NATIVE_INTRADAY[timeframe]
-        body = self._request(
-            f"historical-chart/{interval}",
-            {
-                "symbol": ticker.upper(),
-                "from": start.astimezone(_NY).strftime("%Y-%m-%d"),
-                "to": end.astimezone(_NY).strftime("%Y-%m-%d"),
-            },
-        )
-        return body if isinstance(body, list) else []
+        symbol = ticker.upper()
+        start_str = start.astimezone(_NY).strftime("%Y-%m-%d")
+        collected: list[dict[str, Any]] = []
+        cursor = end
+        for _ in range(_INTRADAY_MAX_PAGES):
+            body = self._request(
+                f"historical-chart/{interval}",
+                {
+                    "symbol": symbol,
+                    "from": start_str,
+                    "to": cursor.astimezone(_NY).strftime("%Y-%m-%d"),
+                },
+            )
+            rows = body if isinstance(body, list) else []
+            if not rows:
+                break
+            collected.extend(rows)
+            oldest = self._parse_dt(str(rows[-1]["date"]))  # FMP returns newest-first
+            if oldest <= start:
+                break
+            next_cursor = oldest - timedelta(days=1)
+            if next_cursor >= cursor:  # no progress — avoid an infinite loop
+                break
+            cursor = next_cursor
+        return collected
 
     def _fetch_eod(self, ticker: str, start: datetime, end: datetime) -> list[dict[str, Any]]:
         body = self._request(
