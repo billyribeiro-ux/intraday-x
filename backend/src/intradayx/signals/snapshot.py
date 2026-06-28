@@ -46,6 +46,11 @@ SIGNAL_SNAPSHOT_FEATURES: tuple[str, ...] = (
     "climax_down_score",
     "squeeze_signature_score",
     "minutes_from_open",
+    # Volatility-regime internals (VIX family); present only when the provider
+    # supplies them, else absent (meta-filter defaults them to 0.0).
+    "vix_level",
+    "vix_roc",
+    "vix_term_slope",
 )
 
 TREND_REGIME_SNAPSHOT_FEATURES: tuple[str, ...] = (

@@ -29,12 +29,38 @@ from intradayx.data.provider import (
 )
 from intradayx.data.resilience import TransientError, with_retries
 from intradayx.domain.bars import BAR_SCHEMA, BarSet, Timeframe
-from intradayx.domain.capabilities import Capability, ProviderCapabilities
+from intradayx.domain.capabilities import Capability, CapabilityError, ProviderCapabilities
 from intradayx.domain.catalysts import CatalystEvent, CatalystKind, parse_fmp_datetime
+from intradayx.domain.internals import INTERNALS_SCHEMA, InternalsSeries, InternalSymbol
 
 _BASE = "https://financialmodelingprep.com/stable"
 _NY = ZoneInfo("America/New_York")
 _FMP_MAX_LOOKBACK = timedelta(days=365 * 30)
+# Intraday endpoint returns ~6 trading days/call; cap backward pagination so a
+# deep request can't run away (400 pages ≈ 6+ years of 5m history).
+_INTRADAY_MAX_PAGES = 400
+
+# Market internals FMP actually serves on the stable API (verified live): the
+# CBOE volatility family as index symbols. Breadth ($TICK/$TRIN/$ADD/$VOLD),
+# SKEW and put/call are NOT available, so we do not declare them — a missing
+# internal must lower data_completeness, never be fabricated.
+_INTERNAL_FMP_SYMBOL: dict[InternalSymbol, str] = {
+    InternalSymbol.VIX: "^VIX",
+    InternalSymbol.VIX9D: "^VIX9D",
+    InternalSymbol.VIX3M: "^VIX3M",
+    InternalSymbol.VVIX: "^VVIX",
+}
+
+# Market internals FMP actually serves on the stable API (verified live): the
+# CBOE volatility family as index symbols. Breadth ($TICK/$TRIN/$ADD/$VOLD),
+# SKEW and put/call are NOT available, so we do not declare them — a missing
+# internal must lower data_completeness, never be fabricated.
+_INTERNAL_FMP_SYMBOL: dict[InternalSymbol, str] = {
+    InternalSymbol.VIX: "^VIX",
+    InternalSymbol.VIX9D: "^VIX9D",
+    InternalSymbol.VIX3M: "^VIX3M",
+    InternalSymbol.VVIX: "^VVIX",
+}
 
 _NATIVE_INTRADAY: dict[Timeframe, str] = {
     Timeframe.M1: "1min",
@@ -124,6 +150,9 @@ class FMPProvider(DataProvider):
                     Capability.STOCK_NEWS,
                     Capability.PRESS_RELEASES,
                     Capability.ANALYST_GRADES,
+                    # CBOE volatility family (verified live on the stable API).
+                    Capability.INTERNALS_VIX,
+                    Capability.INTERNALS_VIX_TERM,
                 }
             ),
             max_intraday_lookback={
@@ -417,16 +446,37 @@ class FMPProvider(DataProvider):
     def _fetch_intraday(
         self, ticker: str, start: datetime, end: datetime, timeframe: Timeframe
     ) -> list[dict[str, Any]]:
+        # FMP's intraday endpoint returns only ~6 trading days (newest-first)
+        # ending at `to`, regardless of how far back `from` reaches. To cover a
+        # deep [start, end] we page BACKWARD: walk `to` to just before the oldest
+        # row of each page until we pass `start` (or a page comes back empty).
+        # BarSet/_rows_to_barset dedupes on ts, so overlap between pages is safe.
         interval = _NATIVE_INTRADAY[timeframe]
-        body = self._request(
-            f"historical-chart/{interval}",
-            {
-                "symbol": ticker.upper(),
-                "from": start.astimezone(_NY).strftime("%Y-%m-%d"),
-                "to": end.astimezone(_NY).strftime("%Y-%m-%d"),
-            },
-        )
-        return body if isinstance(body, list) else []
+        symbol = ticker.upper()
+        start_str = start.astimezone(_NY).strftime("%Y-%m-%d")
+        collected: list[dict[str, Any]] = []
+        cursor = end
+        for _ in range(_INTRADAY_MAX_PAGES):
+            body = self._request(
+                f"historical-chart/{interval}",
+                {
+                    "symbol": symbol,
+                    "from": start_str,
+                    "to": cursor.astimezone(_NY).strftime("%Y-%m-%d"),
+                },
+            )
+            rows = body if isinstance(body, list) else []
+            if not rows:
+                break
+            collected.extend(rows)
+            oldest = self._parse_dt(str(rows[-1]["date"]))  # FMP returns newest-first
+            if oldest <= start:
+                break
+            next_cursor = oldest - timedelta(days=1)
+            if next_cursor >= cursor:  # no progress — avoid an infinite loop
+                break
+            cursor = next_cursor
+        return collected
 
     def _fetch_eod(self, ticker: str, start: datetime, end: datetime) -> list[dict[str, Any]]:
         body = self._request(
@@ -500,6 +550,50 @@ class FMPProvider(DataProvider):
         if value is None or value == "":
             return None
         return float(value)
+
+    def internals(
+        self,
+        symbol: InternalSymbol,
+        start: datetime,
+        end: datetime,
+        timeframe: Timeframe,
+    ) -> InternalsSeries:
+        """Fetch a market-internals series. FMP serves the CBOE volatility family
+        (VIX / VIX9D / VIX3M / VVIX) as index symbols on the same bar endpoints;
+        breadth / SKEW / put-call are not available and raise CapabilityError so
+        the caller degrades honestly rather than receiving fabricated data."""
+        if not self._api_key:
+            raise MissingCredentialsError("FMP_API_KEY is required. Market data is FMP-only.")
+        fmp_symbol = _INTERNAL_FMP_SYMBOL.get(symbol)
+        if fmp_symbol is None:
+            cap = (
+                Capability.INTERNALS_VIX
+                if symbol is InternalSymbol.VIX
+                else Capability.INTERNALS_TICK
+            )
+            raise CapabilityError(self.name, cap)
+
+        if timeframe in _NATIVE_INTRADAY:
+            rows = self._fetch_intraday(fmp_symbol, start, end, timeframe)
+        elif timeframe == Timeframe.D1:
+            rows = self._fetch_eod(fmp_symbol, start, end)
+        else:
+            raise DataError(f"fmp internals: unsupported timeframe {timeframe.value}")
+        return self._rows_to_internals(symbol, timeframe, rows)
+
+    def _rows_to_internals(
+        self, symbol: InternalSymbol, timeframe: Timeframe, rows: list[dict[str, Any]]
+    ) -> InternalsSeries:
+        if not rows:
+            return InternalsSeries(symbol, timeframe, pl.DataFrame(schema=INTERNALS_SCHEMA))
+        frame = pl.DataFrame(
+            {
+                "ts": [self._parse_dt(str(r["date"])) for r in rows],
+                "value": [float(r["close"]) for r in rows],  # the index level
+                "source": [self.name] * len(rows),
+            }
+        )
+        return InternalsSeries(symbol, timeframe, frame)
 
     def _resample(self, source: BarSet, target_tf: Timeframe) -> BarSet:
         if source.is_empty():

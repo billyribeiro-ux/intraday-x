@@ -22,6 +22,7 @@ from intradayx.api.service import get_engine, get_provider
 from intradayx.data.provider import DataError
 from intradayx.domain.bars import Timeframe
 from intradayx.domain.signals import Signal
+from intradayx.features.volatility import fetch_volatility_internals
 from intradayx.live.monitor import LiveMonitor
 
 PROTOCOL_VERSION = 1
@@ -120,6 +121,12 @@ class SignalPoller:
         return True
 
     def status_data(self) -> dict[str, object]:
+        # Self-heal: if we have no usable provider yet, re-check now. The cached
+        # error is set once at construction, so a key added live (in-app Settings,
+        # which rebuilds the provider) must be re-evaluated here — otherwise the
+        # "FMP key needed" badge would stay stuck even though data already loads.
+        if self._provider_error is not None:
+            self._sync_provider_state()
         source = "fmp"
         configured = self._provider_error is None
         if configured:
@@ -146,7 +153,8 @@ class SignalPoller:
         end = datetime.now(tz=UTC)
         start = end - timedelta(days=self.recent_days)
         bars = provider.bars(symbol, start, end, self.timeframe)
-        return self._monitors[symbol].process(bars)
+        vol = fetch_volatility_internals(provider, start, end, self.timeframe)
+        return self._monitors[symbol].process(bars, internals=vol)
 
     async def poll(self) -> None:
         if self.manager.count == 0:
@@ -173,6 +181,10 @@ class SignalPoller:
             await self.manager.broadcast(
                 _envelope("heartbeat", {"next_poll_in_s": self.interval_s})
             )
+            # Re-broadcast status each cycle so a provider-state change (e.g. a
+            # key added live in Settings) reaches already-connected clients — the
+            # status envelope is otherwise only sent once, on connect.
+            await self.manager.broadcast(_envelope("status", self.status_data()))
         finally:
             metrics.POLL_SECONDS.observe(time.perf_counter() - started)
 

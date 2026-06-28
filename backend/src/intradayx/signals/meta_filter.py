@@ -284,3 +284,25 @@ def train_meta_filter(
     mf = MetaFilter(min_samples=min_samples)
     result = mf.fit(labeled)
     return mf, result
+
+
+def train_meta_filter_multi(
+    samples: list[tuple[list[Signal], Any]],
+    *,
+    max_hold_bars: int = 24,
+    min_samples: int = 50,
+) -> tuple[MetaFilter, FitResult]:
+    """Pool labeled signals across symbols and fit ONE MetaFilter.
+
+    Each ``(signals, bars)`` pair is labeled against its own bars (outcomes are
+    per-symbol — target-first vs stop-first), then the labeled sets are unioned.
+    One symbol rarely clears ``min_samples``; a universe does, which is what
+    gives the learned layer the statistical power to validate (and to judge
+    whether a feature like the VIX regime actually earns its place).
+    """
+    labeled: list[LabeledSignal] = []
+    for signals, bars in samples:
+        labeled.extend(label_outcomes(signals, bars, max_hold_bars=max_hold_bars))
+    mf = MetaFilter(min_samples=min_samples)
+    result = mf.fit(labeled)
+    return mf, result
