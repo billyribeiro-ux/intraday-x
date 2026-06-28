@@ -22,6 +22,7 @@ from intradayx.domain.capabilities import (
     ProviderCapabilities,
 )
 from intradayx.domain.catalysts import CatalystEvent
+from intradayx.domain.earnings import EarningsSurprise
 from intradayx.domain.internals import InternalsSeries, InternalSymbol
 from intradayx.domain.options import OptionChain
 from intradayx.domain.shorts import BorrowRate, ShortInterest, ShortVolume
@@ -118,6 +119,14 @@ class DataProvider(ABC):
 
     def earnings_dates(self, ticker: str) -> list[date]:
         """Scheduled-earnings dates (past + upcoming), ascending. A named catalyst."""
+        raise CapabilityError(self.name, Capability.EARNINGS_CALENDAR)
+
+    def earnings_surprises(self, ticker: str, *, limit: int = 80) -> list[EarningsSurprise]:
+        """Historical reported earnings (actual vs estimated EPS), ascending by date.
+
+        The fundamental surprise that drives PEAD. Default raises; vendors that
+        carry actual-vs-estimate EPS override it.
+        """
         raise CapabilityError(self.name, Capability.EARNINGS_CALENDAR)
 
     def catalyst_events(

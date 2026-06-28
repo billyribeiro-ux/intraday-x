@@ -31,6 +31,7 @@ from intradayx.data.resilience import TransientError, with_retries
 from intradayx.domain.bars import BAR_SCHEMA, BarSet, Timeframe
 from intradayx.domain.capabilities import Capability, CapabilityError, ProviderCapabilities
 from intradayx.domain.catalysts import CatalystEvent, CatalystKind, parse_fmp_datetime
+from intradayx.domain.earnings import EarningsSurprise
 from intradayx.domain.internals import INTERNALS_SCHEMA, InternalsSeries, InternalSymbol
 
 _BASE = "https://financialmodelingprep.com/stable"
@@ -39,17 +40,6 @@ _FMP_MAX_LOOKBACK = timedelta(days=365 * 30)
 # Intraday endpoint returns ~6 trading days/call; cap backward pagination so a
 # deep request can't run away (400 pages ≈ 6+ years of 5m history).
 _INTRADAY_MAX_PAGES = 400
-
-# Market internals FMP actually serves on the stable API (verified live): the
-# CBOE volatility family as index symbols. Breadth ($TICK/$TRIN/$ADD/$VOLD),
-# SKEW and put/call are NOT available, so we do not declare them — a missing
-# internal must lower data_completeness, never be fabricated.
-_INTERNAL_FMP_SYMBOL: dict[InternalSymbol, str] = {
-    InternalSymbol.VIX: "^VIX",
-    InternalSymbol.VIX9D: "^VIX9D",
-    InternalSymbol.VIX3M: "^VIX3M",
-    InternalSymbol.VVIX: "^VVIX",
-}
 
 # Market internals FMP actually serves on the stable API (verified live): the
 # CBOE volatility family as index symbols. Breadth ($TICK/$TRIN/$ADD/$VOLD),
@@ -392,6 +382,28 @@ class FMPProvider(DataProvider):
             if ts is not None
         }
         return sorted(dates)
+
+    def earnings_surprises(self, ticker: str, *, limit: int = 80) -> list[EarningsSurprise]:
+        """Historical reported earnings (actual vs estimated EPS), ascending by date.
+
+        Uses FMP's ``/stable/earnings`` (epsActual/epsEstimated), the only feed
+        that carries the *fundamental* surprise PEAD trades on. Rows without a
+        reported actual (future/unreported) are dropped — no fabrication.
+        """
+        rows = self._optional_rows("earnings", {"symbol": ticker.upper(), "limit": str(limit)})
+        out: list[EarningsSurprise] = []
+        for row in rows:
+            ea = self._number(row.get("epsActual"))
+            ee = self._number(row.get("epsEstimated"))
+            raw = self._text(row, "date")
+            if ea is None or ee is None or len(raw) < 10:
+                continue
+            try:
+                d = datetime.strptime(raw[:10], "%Y-%m-%d").date()
+            except ValueError:
+                continue
+            out.append(EarningsSurprise(date=d, eps_actual=ea, eps_estimated=ee))
+        return sorted(out, key=lambda e: e.date)
 
     def catalyst_events(
         self, ticker: str, start: datetime, end: datetime
