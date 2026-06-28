@@ -726,5 +726,66 @@ def thinkscript(
         print(source)
 
 
+@app.command()
+def pead(
+    tickers: str = typer.Argument(..., help="Comma-separated symbols, e.g. AAPL,MSFT,NVDA"),
+    hold_days: int = typer.Option(20, help="Trading days to hold after the surprise"),
+    years: int = typer.Option(4, help="Years of daily history to backtest over"),
+    min_surprise: float = typer.Option(0.0, help="Minimum |EPS surprise| ($) to trade"),
+) -> None:
+    """Post-Earnings-Announcement Drift: backtest the EPS-surprise edge and list
+    currently-open trades. Long a positive surprise, short a negative one, hold
+    ``hold_days`` sessions. The one edge validated in/out-of-sample in this repo."""
+    from datetime import timedelta
+
+    from intradayx.signals.pead import build_pead_signals, open_signals, pead_stats
+
+    syms = [t.strip().upper() for t in tickers.split(",") if t.strip()]
+    provider = default_provider()
+    end = datetime.now(tz=UTC)
+    start = end - timedelta(days=365 * years)
+
+    all_sigs = []
+    for sym in syms:
+        bars = provider.bars(sym, start, end, Timeframe.D1)
+        if bars.is_empty():
+            continue
+        surprises = provider.earnings_surprises(sym)
+        all_sigs.extend(
+            build_pead_signals(
+                sym, bars, surprises, hold_days=hold_days, min_abs_surprise=min_surprise
+            )
+        )
+
+    stats = pead_stats(all_sigs)
+    console.print(
+        f"\n[bold]PEAD[/] {len(syms)} symbols · {years}y · hold {hold_days}d — "
+        f"backtest on {stats.n} closed events"
+    )
+    summary = Table(show_header=False, box=None)
+    summary.add_row("Closed trades", str(stats.n))
+    summary.add_row("Mean trade return", f"{stats.mean_return * 100:+.3f}%")
+    summary.add_row("t-stat", f"{stats.t_stat:.2f}")
+    summary.add_row("Hit rate", f"{stats.hit_rate * 100:.1f}%")
+    summary.add_row("Total (sum of trade returns)", f"{stats.total_return * 100:+.1f}%")
+    console.print(summary)
+    verdict = "edge present (t>2)" if stats.t_stat > 2 else "not significant on this sample"
+    console.print(f"Verdict: [bold]{verdict}[/]")
+
+    live = open_signals(all_sigs)
+    if live:
+        ot = Table(title="Open PEAD trades (announced, still in the drift window)")
+        for col in ("Symbol", "Announced", "Entry date", "Side", "Surprise$", "Entry"):
+            ot.add_column(col)
+        for s in sorted(live, key=lambda x: x.announce_date, reverse=True):
+            ot.add_row(
+                s.symbol, s.announce_date.isoformat(), s.entry_date.isoformat(),
+                s.side, f"{s.surprise:+.2f}", f"${s.entry:.2f}",
+            )
+        console.print(ot)
+    else:
+        console.print("[dim]No open PEAD trades right now.[/]")
+
+
 if __name__ == "__main__":
     app()
