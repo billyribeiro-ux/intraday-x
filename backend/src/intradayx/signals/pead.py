@@ -34,12 +34,30 @@ class PeadSignal:
     entry_date: date
     side: str  # "buy" (positive surprise) | "sell" (negative surprise)
     surprise: float
+    sue: float  # standardized unexpected earnings: surprise / std(prior surprises)
     entry: float
     hold_days: int
     exit_date: date | None  # None while still inside the drift window (live/open)
     exit: float | None
     trade_return: float | None  # realized, direction-adjusted (None if open)
     is_open: bool
+
+
+_SUE_MIN_PRIORS = 4  # need a few prior reports before a surprise std is meaningful
+
+
+def _sue(surprise: float, priors: list[float]) -> float:
+    """Standardized unexpected earnings: surprise / std(prior surprises).
+
+    SUE is the literature-standard PEAD signal — it normalizes a $-surprise by
+    how surprising it is *for this name*. Falls back to 0.0 until enough priors
+    exist (so a min-SUE filter naturally skips the unstandardizable early ones).
+    """
+    if len(priors) < _SUE_MIN_PRIORS:
+        return 0.0
+    mean = sum(priors) / len(priors)
+    sd = math.sqrt(sum((x - mean) ** 2 for x in priors) / (len(priors) - 1))
+    return surprise / sd if sd > 0 else 0.0
 
 
 def build_pead_signals(
@@ -49,11 +67,13 @@ def build_pead_signals(
     *,
     hold_days: int = 20,
     min_abs_surprise: float = 0.0,
+    min_abs_sue: float = 0.0,
 ) -> list[PeadSignal]:
     """Generate PEAD signals from daily ``bars`` + reported ``surprises``.
 
     Causal: each trade enters at the close of the first session on/after the
-    announcement and exits ``hold_days`` sessions later. Events whose exit is
+    announcement and exits ``hold_days`` sessions later. ``min_abs_sue`` gates on
+    standardized surprise (the stronger, scale-free signal). Events whose exit is
     beyond the available bars are returned ``is_open`` (actionable now), never
     fabricated.
     """
@@ -65,8 +85,13 @@ def build_pead_signals(
     idx = {d: i for i, d in enumerate(ts)}
 
     out: list[PeadSignal] = []
-    for ev in surprises:
+    priors: list[float] = []  # past surprises for this symbol (for SUE), causal
+    for ev in sorted(surprises, key=lambda e: e.date):
+        sue = _sue(ev.surprise, priors)
+        priors.append(ev.surprise)
         if abs(ev.surprise) < min_abs_surprise or ev.surprise == 0.0:
+            continue
+        if abs(sue) < min_abs_sue:
             continue
         d0 = next(
             (idx[ev.date + timedelta(days=o)] for o in range(_ANNOUNCE_SEARCH_DAYS)
@@ -88,6 +113,7 @@ def build_pead_signals(
                     entry_date=ts[d0],
                     side=side,
                     surprise=ev.surprise,
+                    sue=sue,
                     entry=entry,
                     hold_days=hold_days,
                     exit_date=ts[exit_idx],
@@ -104,6 +130,7 @@ def build_pead_signals(
                     entry_date=ts[d0],
                     side=side,
                     surprise=ev.surprise,
+                    sue=sue,
                     entry=entry,
                     hold_days=hold_days,
                     exit_date=None,
