@@ -51,6 +51,17 @@ _INTERNAL_FMP_SYMBOL: dict[InternalSymbol, str] = {
     InternalSymbol.VVIX: "^VVIX",
 }
 
+# Market internals FMP actually serves on the stable API (verified live): the
+# CBOE volatility family as index symbols. Breadth ($TICK/$TRIN/$ADD/$VOLD),
+# SKEW and put/call are NOT available, so we do not declare them — a missing
+# internal must lower data_completeness, never be fabricated.
+_INTERNAL_FMP_SYMBOL: dict[InternalSymbol, str] = {
+    InternalSymbol.VIX: "^VIX",
+    InternalSymbol.VIX9D: "^VIX9D",
+    InternalSymbol.VIX3M: "^VIX3M",
+    InternalSymbol.VVIX: "^VVIX",
+}
+
 _NATIVE_INTRADAY: dict[Timeframe, str] = {
     Timeframe.M1: "1min",
     Timeframe.M5: "5min",
