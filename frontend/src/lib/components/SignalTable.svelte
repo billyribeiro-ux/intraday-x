@@ -126,6 +126,11 @@
 		text-align: right;
 		font-variant-numeric: tabular-nums;
 	}
+	/* Entry is the actionable number — buy/sell AT this price — so make it pop. */
+	.price {
+		font-weight: 700;
+		color: var(--text);
+	}
 	.mono {
 		font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 	}
