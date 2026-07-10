@@ -65,6 +65,7 @@
 	{/if}
 
 	{#if result}
+		{@const hedgedAlpha = result.adj_n > 0 && result.adj_t_stat >= 2 && result.adj_mean_return >= 0.003}
 		{@const edge = result.t_stat > 2}
 		<div class="cards">
 			<div class="card hero" class:good={result.sharpe > 0.5}>
@@ -78,12 +79,23 @@
 		</div>
 
 		<div class="edgebar" class:good={edge}>
-			Edge: <b>{result.n_events}</b> events · mean <b>{pct2(result.mean_return)}</b>/trade ·
-			t-stat <b>{result.t_stat.toFixed(2)}</b> · hit {pct(result.hit_rate)} —
-			<b>{edge ? 'edge present (t>2)' : 'not significant on this sample'}</b>
+			Raw: <b>{result.n_events}</b> events · mean <b>{pct2(result.mean_return)}</b>/trade ·
+			t-stat <b>{result.t_stat.toFixed(2)}</b> · hit {pct(result.hit_rate)}
 			<span class="meta">{result.symbols.length} names · {result.years}y · hold {result.hold_days}d ·
 			{result.cost_bps}bps/side + {result.borrow_bps}bps borrow</span>
 		</div>
+
+		{#if result.adj_n > 0}
+			<!-- The alpha-vs-beta truth serum: each trade minus SPY over the same
+			     window. Verified finding: raw PEAD P&L is substantially market beta. -->
+			<div class="edgebar" class:good={hedgedAlpha} class:warn={!hedgedAlpha}>
+				Market-adjusted (SPY-hedged): mean <b>{pct2(result.adj_mean_return)}</b>/trade ·
+				t-stat <b>{result.adj_t_stat.toFixed(2)}</b> · hit {pct(result.adj_hit_rate)} —
+				<b>{hedgedAlpha
+					? 'hedged alpha present'
+					: '⚠ raw P&L is mostly market beta — hedged edge not significant'}</b>
+			</div>
+		{/if}
 
 		<h2>Open trades <span class="sub">announced, still in the drift window</span></h2>
 		{#if result.open_trades.length === 0}
@@ -138,6 +150,7 @@
 	.edgebar { background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--muted);
 		border-radius: 6px; padding: 0.55rem 0.8rem; font-size: 0.85rem; margin-bottom: 1rem; }
 	.edgebar.good { border-left-color: var(--buy); }
+	.edgebar.warn { border-left-color: var(--warn, #e5a50a); }
 	.edgebar .meta { display: block; color: var(--muted); font-size: 0.72rem; margin-top: 0.25rem; }
 	h2 { font-size: 0.95rem; margin: 0.5rem 0; }
 	table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }

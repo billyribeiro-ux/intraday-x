@@ -38,6 +38,12 @@ export interface PeadResponse {
 	mean_return: number;
 	t_stat: number;
 	hit_rate: number;
+	// Market-adjusted (SPY-hedged) — separates alpha from beta. Research finding:
+	// raw PEAD P&L is substantially market beta; always read these first.
+	adj_n: number;
+	adj_mean_return: number;
+	adj_t_stat: number;
+	adj_hit_rate: number;
 	sharpe: number;
 	ann_return: number;
 	ann_vol: number;

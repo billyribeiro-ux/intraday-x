@@ -658,6 +658,12 @@ def run_pead(
     end = datetime.now(tz=UTC)
     start = end - timedelta(days=365 * years)
 
+    # SPY fetched once: the market series that separates alpha from beta.
+    try:
+        spy = provider.bars("SPY", start, end, Timeframe.D1)
+    except DataError:
+        spy = None
+
     bars_by: dict[str, Any] = {}
     sigs_by: dict[str, Any] = {}
     all_sigs = []
@@ -666,7 +672,8 @@ def run_pead(
         if bars.is_empty():
             continue
         sigs = build_pead_signals(
-            sym, bars, provider.earnings_surprises(sym), hold_days=hold_days, min_abs_sue=min_sue
+            sym, bars, provider.earnings_surprises(sym),
+            hold_days=hold_days, min_abs_sue=min_sue, market=spy,
         )
         bars_by[sym] = bars
         sigs_by[sym] = sigs
@@ -700,6 +707,10 @@ def run_pead(
         mean_return=st.mean_return,
         t_stat=st.t_stat,
         hit_rate=st.hit_rate,
+        adj_n=st.adj_n,
+        adj_mean_return=st.adj_mean_return,
+        adj_t_stat=st.adj_t_stat,
+        adj_hit_rate=st.adj_hit_rate,
         sharpe=pf.sharpe,
         ann_return=pf.ann_return,
         ann_vol=pf.ann_vol,
