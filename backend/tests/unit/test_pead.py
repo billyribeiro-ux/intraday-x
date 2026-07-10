@@ -27,18 +27,34 @@ def _daily_bars(n: int, closes: list[float]) -> BarSet:
     return BarSet("AAPL", Timeframe.D1, pl.DataFrame(rows, schema=BAR_SCHEMA))
 
 
-def test_positive_surprise_is_long_and_drift_is_direction_adjusted() -> None:
+def test_positive_surprise_is_long_and_entry_is_strictly_after_announce() -> None:
     closes = [100.0 + i for i in range(30)]  # steadily rising
     bars = _daily_bars(30, closes)
-    # surprise on day index 5 (2026-01-07), hold 10 days
+    # surprise announced 2026-01-07 (day index 5); STRICT entry = next session
+    # (an after-close report can never be traded before it is public)
     ev = EarningsSurprise(date=date(2026, 1, 7), eps_actual=1.2, eps_estimated=1.0)
     sigs = build_pead_signals("AAPL", bars, [ev], hold_days=10)
     assert len(sigs) == 1
     s = sigs[0]
     assert s.side == "buy" and not s.is_open
-    # entry close[5]=105, exit close[15]=115 → +9.52% long
-    assert s.entry == 105.0 and s.exit == 115.0
+    assert s.entry_date == date(2026, 1, 8)  # strictly after the announce date
+    # entry close[6]=106, exit close[16]=116 → +9.43% long
+    assert s.entry == 106.0 and s.exit == 116.0
     assert s.trade_return is not None and s.trade_return > 0.09
+    assert s.adjusted_return is None  # no market series supplied
+
+
+def test_market_adjusted_return_subtracts_spy() -> None:
+    closes = [100.0 * (1.01**i) for i in range(30)]  # +1%/day stock
+    bars = _daily_bars(30, closes)
+    spy = _daily_bars(30, closes)  # market moves identically
+    ev = EarningsSurprise(date=date(2026, 1, 7), eps_actual=1.2, eps_estimated=1.0)
+    s = build_pead_signals("AAPL", bars, [ev], hold_days=10, market=spy)[0]
+    # stock == market → all "drift" is beta → adjusted return is ~0
+    assert s.trade_return is not None and s.trade_return > 0.09
+    assert s.adjusted_return is not None and abs(s.adjusted_return) < 1e-9
+    st = pead_stats([s])
+    assert st.adj_n == 1 and abs(st.adj_mean_return) < 1e-9
 
 
 def test_negative_surprise_is_short_and_profits_when_price_falls() -> None:
