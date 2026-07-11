@@ -72,6 +72,23 @@ def _sue(surprise: float, priors: list[float]) -> float:
     return surprise / sd if sd > 0 else 0.0
 
 
+_SUE_MIN_PRIORS = 4  # need a few prior reports before a surprise std is meaningful
+
+
+def _sue(surprise: float, priors: list[float]) -> float:
+    """Standardized unexpected earnings: surprise / std(prior surprises).
+
+    SUE is the literature-standard PEAD signal — it normalizes a $-surprise by
+    how surprising it is *for this name*. Falls back to 0.0 until enough priors
+    exist (so a min-SUE filter naturally skips the unstandardizable early ones).
+    """
+    if len(priors) < _SUE_MIN_PRIORS:
+        return 0.0
+    mean = sum(priors) / len(priors)
+    sd = math.sqrt(sum((x - mean) ** 2 for x in priors) / (len(priors) - 1))
+    return surprise / sd if sd > 0 else 0.0
+
+
 def build_pead_signals(
     symbol: str,
     bars: BarSet,
