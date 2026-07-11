@@ -9,10 +9,12 @@ from intradayx.api.schemas import (
     BacktestResponse,
     LearnRequest,
     LearnResponse,
+    PeadRequest,
+    PeadResponse,
     ScanRequest,
     ScanResponse,
 )
-from intradayx.api.service import run_backtest_dto, run_scan, train_meta_filter_dto
+from intradayx.api.service import run_backtest_dto, run_pead, run_scan, train_meta_filter_dto
 from intradayx.data.provider import DataError
 
 router = APIRouter(prefix="/api", tags=["analysis"])
@@ -58,6 +60,23 @@ def learn(req: LearnRequest) -> LearnResponse:
             req.max_hold,
             scanner=req.scanner,
             min_samples=req.min_samples,
+        )
+    except DataError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@router.post("/pead", response_model=PeadResponse)
+def pead(req: PeadRequest) -> PeadResponse:
+    if not req.symbols:
+        raise HTTPException(status_code=400, detail="symbols must not be empty")
+    try:
+        return run_pead(
+            req.symbols,
+            hold_days=req.hold_days,
+            years=req.years,
+            min_sue=req.min_sue,
+            cost_bps=req.cost_bps,
+            borrow_bps=req.borrow_bps,
         )
     except DataError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc

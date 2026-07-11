@@ -5,7 +5,7 @@
 	// client navigation.
 	import { page } from '$app/state';
 
-	import { FlaskIcon, GaugeIcon, GearIcon } from '$lib/icons';
+	import { ChartLineIcon, FlaskIcon, GaugeIcon, GearIcon } from '$lib/icons';
 
 	type NavItem = {
 		href: string;
@@ -16,6 +16,7 @@
 	const items: NavItem[] = [
 		{ href: '/', label: 'Monitor', icon: GaugeIcon },
 		{ href: '/backtest', label: 'Backtest', icon: FlaskIcon },
+		{ href: '/pead', label: 'Earnings', icon: ChartLineIcon },
 		{ href: '/settings', label: 'Settings', icon: GearIcon }
 	];
 

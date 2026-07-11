@@ -325,3 +325,54 @@ class LearnResponse(BaseModel):
     insufficient: bool
     reason: str = ""
     feature_importance: list[tuple[str, float]] = []
+
+
+class PeadRequest(BaseModel):
+    symbols: list[str]
+    hold_days: int = 20
+    years: int = 4
+    min_sue: float = 0.0
+    cost_bps: float = 5.0
+    borrow_bps: float = 50.0
+
+
+class PeadOpenTradeDTO(BaseModel):
+    symbol: str
+    announce_date: str
+    entry_date: str
+    side: str
+    surprise: float
+    sue: float
+    entry: float
+
+
+class PeadEquityPointDTO(BaseModel):
+    time: int  # epoch seconds at UTC midnight of the date
+    value: float
+
+
+class PeadResponse(BaseModel):
+    symbols: list[str]
+    hold_days: int
+    years: int
+    n_events: int
+    mean_return: float
+    t_stat: float
+    hit_rate: float
+    # Market-adjusted (SPY-hedged) per-trade stats — separates alpha from beta.
+    # Research finding (61 names, 10y): raw t≈6 but adjusted t≈1.9 — raw PEAD
+    # P&L is substantially market beta; surface these alongside raw ALWAYS.
+    adj_n: int = 0
+    adj_mean_return: float = 0.0
+    adj_t_stat: float = 0.0
+    adj_hit_rate: float = 0.0
+    sharpe: float
+    ann_return: float
+    ann_vol: float
+    max_drawdown: float
+    total_return: float
+    n_days: int
+    cost_bps: float
+    borrow_bps: float
+    open_trades: list[PeadOpenTradeDTO]
+    equity: list[PeadEquityPointDTO]
