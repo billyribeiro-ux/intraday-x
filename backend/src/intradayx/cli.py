@@ -749,6 +749,11 @@ def pead(
     end = datetime.now(tz=UTC)
     start = end - timedelta(days=365 * years)
 
+    try:
+        spy = provider.bars("SPY", start, end, Timeframe.D1)
+    except Exception:
+        spy = None
+
     bars_by_symbol = {}
     signals_by_symbol = {}
     all_sigs = []
@@ -760,6 +765,7 @@ def pead(
         sigs = build_pead_signals(
             sym, bars, surprises,
             hold_days=hold_days, min_abs_surprise=min_surprise, min_abs_sue=min_sue,
+            market=spy,
         )
         bars_by_symbol[sym] = bars
         signals_by_symbol[sym] = sigs
@@ -772,12 +778,29 @@ def pead(
     )
     summary = Table(show_header=False, box=None)
     summary.add_row("Closed trades", str(stats.n))
-    summary.add_row("Mean trade return", f"{stats.mean_return * 100:+.3f}%")
-    summary.add_row("t-stat", f"{stats.t_stat:.2f}")
-    summary.add_row("Hit rate", f"{stats.hit_rate * 100:.1f}%")
+    summary.add_row("Mean trade return (raw)", f"{stats.mean_return * 100:+.3f}%")
+    summary.add_row("t-stat (raw)", f"{stats.t_stat:.2f}")
+    summary.add_row("Hit rate (raw)", f"{stats.hit_rate * 100:.1f}%")
     summary.add_row("Total (sum of trade returns)", f"{stats.total_return * 100:+.1f}%")
+    if stats.adj_n:
+        summary.add_row(
+            "Market-adjusted (SPY-hedged)",
+            f"{stats.adj_mean_return * 100:+.3f}%/trade  t={stats.adj_t_stat:.2f}  "
+            f"hit {stats.adj_hit_rate * 100:.1f}%",
+        )
     console.print(summary)
-    verdict = "edge present (t>2)" if stats.t_stat > 2 else "not significant on this sample"
+    # The honest verdict keys off the HEDGED number — raw PEAD P&L is
+    # substantially market beta (fleet finding: 10y raw t≈6, adjusted t≈1.9).
+    if stats.adj_n:
+        if stats.adj_t_stat >= 2 and stats.adj_mean_return >= 0.003:
+            verdict = "hedged alpha present (adjusted t>=2)"
+        else:
+            verdict = (
+                "raw P&L is mostly MARKET BETA — hedged edge not significant "
+                f"(adjusted t={stats.adj_t_stat:.2f})"
+            )
+    else:
+        verdict = "edge present (t>2, raw only)" if stats.t_stat > 2 else "not significant"
     console.print(f"Verdict: [bold]{verdict}[/]")
 
     # Cost-aware long/short portfolio — the deployable, after-cost number.

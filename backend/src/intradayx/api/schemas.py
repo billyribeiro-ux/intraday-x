@@ -359,6 +359,13 @@ class PeadResponse(BaseModel):
     mean_return: float
     t_stat: float
     hit_rate: float
+    # Market-adjusted (SPY-hedged) per-trade stats — separates alpha from beta.
+    # Research finding (61 names, 10y): raw t≈6 but adjusted t≈1.9 — raw PEAD
+    # P&L is substantially market beta; surface these alongside raw ALWAYS.
+    adj_n: int = 0
+    adj_mean_return: float = 0.0
+    adj_t_stat: float = 0.0
+    adj_hit_rate: float = 0.0
     sharpe: float
     ann_return: float
     ann_vol: float
