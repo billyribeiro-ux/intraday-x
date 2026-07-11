@@ -11,6 +11,7 @@ import logging
 from datetime import UTC, datetime, timedelta
 from functools import lru_cache
 from pathlib import Path
+from typing import Any
 
 import polars as pl
 
@@ -29,6 +30,9 @@ from intradayx.api.schemas import (
     MetricsDTO,
     MoveDriverDTO,
     MoveExplanationDTO,
+    PeadEquityPointDTO,
+    PeadOpenTradeDTO,
+    PeadResponse,
     ScanResponse,
     StudyDTO,
     TodStatDTO,
@@ -630,4 +634,91 @@ def train_meta_filter_dto(
         insufficient=result.insufficient,
         reason=rejection_reason,
         feature_importance=result.feature_importance[:12],
+    )
+
+
+def run_pead(
+    symbols: list[str],
+    *,
+    hold_days: int = 20,
+    years: int = 4,
+    min_sue: float = 0.0,
+    cost_bps: float = 5.0,
+    borrow_bps: float = 50.0,
+) -> PeadResponse:
+    """Post-Earnings-Announcement Drift: edge stats + cost-aware long/short
+    portfolio + currently-open trades, for the desktop Earnings-Drift view."""
+    from datetime import timedelta
+
+    from intradayx.signals.pead import build_pead_signals, open_signals, pead_stats
+    from intradayx.signals.pead_portfolio import pead_portfolio_backtest
+
+    syms = [s.strip().upper() for s in symbols if s.strip()]
+    provider = get_provider()
+    end = datetime.now(tz=UTC)
+    start = end - timedelta(days=365 * years)
+
+    # SPY fetched once: the market series that separates alpha from beta.
+    try:
+        spy = provider.bars("SPY", start, end, Timeframe.D1)
+    except DataError:
+        spy = None
+
+    bars_by: dict[str, Any] = {}
+    sigs_by: dict[str, Any] = {}
+    all_sigs = []
+    for sym in syms:
+        bars = provider.bars(sym, start, end, Timeframe.D1)
+        if bars.is_empty():
+            continue
+        sigs = build_pead_signals(
+            sym, bars, provider.earnings_surprises(sym),
+            hold_days=hold_days, min_abs_sue=min_sue, market=spy,
+        )
+        bars_by[sym] = bars
+        sigs_by[sym] = sigs
+        all_sigs.extend(sigs)
+
+    st = pead_stats(all_sigs)
+    pf = pead_portfolio_backtest(bars_by, sigs_by, cost_bps=cost_bps, borrow_bps_annual=borrow_bps)
+    open_trades = [
+        PeadOpenTradeDTO(
+            symbol=s.symbol,
+            announce_date=s.announce_date.isoformat(),
+            entry_date=s.entry_date.isoformat(),
+            side=s.side,
+            surprise=s.surprise,
+            sue=s.sue,
+            entry=s.entry,
+        )
+        for s in sorted(open_signals(all_sigs), key=lambda x: x.announce_date, reverse=True)
+    ]
+    equity = [
+        PeadEquityPointDTO(
+            time=int(datetime(d.year, d.month, d.day, tzinfo=UTC).timestamp()), value=v
+        )
+        for d, v in pf.equity
+    ]
+    return PeadResponse(
+        symbols=syms,
+        hold_days=hold_days,
+        years=years,
+        n_events=st.n,
+        mean_return=st.mean_return,
+        t_stat=st.t_stat,
+        hit_rate=st.hit_rate,
+        adj_n=st.adj_n,
+        adj_mean_return=st.adj_mean_return,
+        adj_t_stat=st.adj_t_stat,
+        adj_hit_rate=st.adj_hit_rate,
+        sharpe=pf.sharpe,
+        ann_return=pf.ann_return,
+        ann_vol=pf.ann_vol,
+        max_drawdown=pf.max_drawdown,
+        total_return=pf.total_return,
+        n_days=pf.n_days,
+        cost_bps=cost_bps,
+        borrow_bps=borrow_bps,
+        open_trades=open_trades,
+        equity=equity,
     )
